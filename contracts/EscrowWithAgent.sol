@@ -1,102 +1,164 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.5.8 <0.9.0;
+pragma solidity ^0.8.20;
 
-/// @title An escrow contract with a third-party agent for USDC
-/// @notice This contract holds USDC tokens from a depositor and keeps it until the third-party agent decides to send the tokens to the beneficiary
-interface USDC {
-    function transfer(
-        address recipient,
-        uint256 amount
-    ) external returns (bool);
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) external returns (bool);
-
+/// @notice ERC-20 interface (USDC-compatible: returns bool)
+interface IERC20 {
+    function transfer(address to, uint256 value) external returns (bool);
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
 
-contract EscrowWithAgent {
-    address public depositor;
-    address public beneficiary;
-    address public agent;
-    uint256 public amount;
-    USDC public usdcToken;
-    Stages public currentStage;
+contract AgentlessEscrow {
+    enum Stage { OPEN, FUNDED, RELEASED, REFUNDED, EXPIRED }
 
-    event deposited(uint256 amount, Stages currentStage);
-    event released(uint256 amount, Stages currentStage);
-    event reverted(uint256 amount, Stages currentStage);
-    event stageChange(Stages currentStage);
+    IERC20  public immutable token;       // e.g., USDC (6 decimals)
+    address public immutable depositor;
+    address public immutable beneficiary;
+    uint256 public immutable amount;      // in token smallest units
+    uint64  public immutable deadline;    // unix timestamp
 
-    enum Stages {
-        OPEN,
-        LOCKED,
-        CLOSED
+    Stage public stage;
+
+    // 2-of-2 approvals
+    bool public depositorReleaseOk;
+    bool public beneficiaryReleaseOk;
+    bool public depositorRefundOk;
+    bool public beneficiaryRefundOk;
+
+    // simple reentrancy guard (no OZ)
+    bool private _locked;
+    modifier nonReentrant() {
+        require(!_locked, "reentrancy");
+        _locked = true;
+        _;
+        _locked = false;
     }
 
-    // Constructor to initialize the contract
+    // Events
+    event StageChanged(Stage stage);
+    event Deposited(uint256 amount);
+    event Released(uint256 amount);
+    event Refunded(uint256 amount);
+    event ReleaseApproved(address by);
+    event RefundApproved(address by);
+
+    error BadCaller();
+    error BadStage();
+    error DeadlineNotReached();
+    error AlreadyApproved();
+
     constructor(
+        address _token,
         address _depositor,
         address _beneficiary,
-        address _agent,
         uint256 _amount,
-        address _usdcTokenAddress
+        uint64  _deadline   // e.g., uint64(block.timestamp + 7 days)
     ) {
+        require(_token != address(0) && _depositor != address(0) && _beneficiary != address(0), "zero addr");
+        require(_amount > 0, "amount=0");
+        require(_deadline > block.timestamp, "deadline past");
+
+        token = IERC20(_token);
         depositor = _depositor;
         beneficiary = _beneficiary;
-        agent = _agent;
         amount = _amount;
-        usdcToken = USDC(_usdcTokenAddress);
-        currentStage = Stages.OPEN;
-        emit stageChange(currentStage);
+        deadline = _deadline;
+
+        stage = Stage.OPEN;
+        emit StageChanged(stage);
     }
 
-    function deposit() public {
-        require(msg.sender == depositor, "Sender must be the depositor");
-        require(currentStage == Stages.OPEN, "Wrong stage");
-        require(
-            usdcToken.balanceOf(address(this)) <= amount,
-            "Can't send more than specified amount"
-        );
+    /// @notice Depositor pulls funds into escrow after granting allowance
+    function deposit() external nonReentrant {
+        if (msg.sender != depositor) revert BadCaller();
+        if (stage != Stage.OPEN) revert BadStage();
 
-        usdcToken.transferFrom(depositor, address(this), amount);
+        // Effects before interaction where possible
+        stage = Stage.FUNDED;
+        emit StageChanged(stage);
 
-        if (usdcToken.balanceOf(address(this)) >= amount) {
-            currentStage = Stages.LOCKED;
-            emit stageChange(currentStage);
+        // Pull funds into the contract
+        bool ok = token.transferFrom(depositor, address(this), amount);
+        require(ok, "transferFrom failed");
+
+        emit Deposited(amount);
+    }
+
+    /// @notice Each party approves releasing to beneficiary (2-of-2)
+    function approveRelease() external {
+        if (stage != Stage.FUNDED) revert BadStage();
+
+        if (msg.sender == depositor) {
+            if (depositorReleaseOk) revert AlreadyApproved();
+            depositorReleaseOk = true;
+        } else if (msg.sender == beneficiary) {
+            if (beneficiaryReleaseOk) revert AlreadyApproved();
+            beneficiaryReleaseOk = true;
+        } else {
+            revert BadCaller();
         }
-        emit deposited(amount, currentStage);
+        emit ReleaseApproved(msg.sender);
+
+        if (depositorReleaseOk && beneficiaryReleaseOk) {
+            _release();
+        }
     }
 
-    function release() public {
-        require(msg.sender == agent, "Only agent can release funds");
-        require(currentStage == Stages.LOCKED, "Funds not in escrow yet");
-        usdcToken.transfer(beneficiary, amount);
-        currentStage = Stages.CLOSED;
-        emit stageChange(currentStage);
-        emit released(amount, currentStage);
+    /// @notice Each party can approve refund (2-of-2)
+    function approveRefund() external {
+        if (stage != Stage.FUNDED && stage != Stage.OPEN) revert BadStage();
+
+        if (msg.sender == depositor) {
+            if (depositorRefundOk) revert AlreadyApproved();
+            depositorRefundOk = true;
+        } else if (msg.sender == beneficiary) {
+            if (beneficiaryRefundOk) revert AlreadyApproved();
+            beneficiaryRefundOk = true;
+        } else {
+            revert BadCaller();
+        }
+        emit RefundApproved(msg.sender);
+
+        if (stage == Stage.FUNDED && depositorRefundOk && beneficiaryRefundOk) {
+            _refund();
+        }
     }
 
-    function revertEscrow() public {
-        require(msg.sender == agent, "Only agent can revert the contract");
-        require(
-            currentStage == Stages.LOCKED || currentStage == Stages.OPEN,
-            "Cannot revert at this stage"
-        );
-        usdcToken.transfer(depositor, amount);
-        currentStage = Stages.CLOSED;
-        emit stageChange(currentStage);
-        emit reverted(amount, currentStage);
+    /// @notice After deadline, depositor can unilaterally refund if funds still locked
+    function refundAfterDeadline() external nonReentrant {
+        if (msg.sender != depositor) revert BadCaller();
+        if (stage != Stage.FUNDED) revert BadStage();
+        if (block.timestamp < deadline) revert DeadlineNotReached();
+
+        // Mark expired to prevent reentrancy into release path
+        stage = Stage.EXPIRED;
+        emit StageChanged(stage);
+
+        _refund();
     }
 
-    function stageOf() public view returns (Stages) {
-        return currentStage;
+    // ---- internal actions ----
+
+    function _release() internal nonReentrant {
+        stage = Stage.RELEASED;
+        emit StageChanged(stage);
+
+        bool ok = token.transfer(beneficiary, amount);
+        require(ok, "transfer failed");
+        emit Released(amount);
     }
 
-    function balanceOf() public view returns (uint256) {
-        return usdcToken.balanceOf(address(this));
+    function _refund() internal nonReentrant {
+        stage = Stage.REFUNDED;
+        emit StageChanged(stage);
+
+        bool ok = token.transfer(depositor, amount);
+        require(ok, "transfer failed");
+        emit Refunded(amount);
+    }
+
+    // ---- views ----
+    function balance() external view returns (uint256) {
+        return token.balanceOf(address(this));
     }
 }

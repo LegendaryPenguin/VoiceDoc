@@ -1,12 +1,3 @@
-export const FILE_CONSTANTS = {
-  MAX_SIZE_5MB: 5 * 1024 * 1024,
-  VALID_TYPES: [
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ],
-  BUCKET_NAME: "agreement-documents",
-} as const;
-
 export const SYSTEM_AGENT_ADDRESS =
   "0xa28703eb68637fc0b2022249196523444546d6fe";
 export const SYSTEM_AGENT_WALLET_ID = "109d08db-4460-59ca-8798-cc6064a310d5";
