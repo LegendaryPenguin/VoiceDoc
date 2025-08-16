@@ -5,119 +5,123 @@ import {FunctionsClient} from "@chainlink/contracts@1.4.0/src/v0.8/functions/v1_
 import {ConfirmedOwner} from "@chainlink/contracts@1.4.0/src/v0.8/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/contracts@1.4.0/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 
-/**
- * Request testnet LINK and ETH here: https://faucets.chain.link/
- * Find information on LINK Token Contracts and get the latest ETH and LINK faucets here: https://docs.chain.link/resources/link-token-contracts/
- */
-contract GettingStartedFunctionsConsumer is FunctionsClient, ConfirmedOwner {
+/// @title ChatGPTConsumer — Chainlink Functions + OpenAI demo (hackathon-safe)
+/// @notice Keeps callbacks readable while avoiding DON gas limit reverts
+contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
 
-    // State variables
-    bytes32 public s_lastRequestId;
-    bytes public s_lastResponse; // raw CBOR bytes from Functions
-    bytes public s_lastError;
-    string public player; // decoded player string
+    // ===== State =====
+    bytes32 public lastRequestId;
+    bytes public lastResponse; // raw CBOR payload from Functions
+    bytes public lastError;    // raw error payload from Functions
+    string public lastAnswer;  // decoded, trimmed ChatGPT answer
 
-    // Custom error
-    error UnexpectedRequestID(bytes32 requestId);
+    // ===== Events =====
+    event Response(bytes32 indexed requestId, string answer, bytes rawResponse, bytes error);
 
-    // Events
-    event Response(
-        bytes32 indexed requestId,
-        string decoded,
-        bytes rawResponse,
-        bytes err
-    );
+    // ===== Chainlink config (Sepolia) =====
+    address constant ROUTER = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
+    bytes32 constant DON_ID = 0x66756e2d657468657265756d2d7365706f6c69612d3100000000000000000000; // sepolia-1
 
-    // Router address - Hardcoded for Sepolia
-    address router = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
+    // IMPORTANT: Sepolia DON currently caps callback gas at ~300,000.
+    // Setting higher will revert during send (gas estimation failure with unknown custom error).
+    uint32 constant CALLBACK_GAS_LIMIT = 300000; // <= DON max
 
-    // JavaScript source code
-    string source = string(
-        abi.encodePacked(
-            "const apiResponse = await Functions.makeHttpRequest({",
-            "    url: \"https://api.openai.com/v1/chat/completions\",",
-            "    method: \"POST\",",
-            "    headers: {",
-            "        \"Content-Type\": \"application/json\",",
-            "        \"Authorization\": \"Bearer *key goes here until i get chainlink secrets working ;)*",
-            "    },",
-            "    data: {",
-            "        model: \"gpt-3.5-turbo\",",
-            "        messages: [{ role: \"user\", content: args[0] }],",
-            "        max_tokens: 100",
-            "    }",
-            "});",
-            "if (apiResponse.error) {",
-            "throw new Error(`Failed to fetch data from Chatbot API: ${apiResponse.error}`);",
-            "}",
-            "const chatbotReply = apiResponse.data?.choices?.[0]?.message?.content?.trim();",
-            "if (!chatbotReply) {",
-            "throw new Error(\"No reply returned from Chatbot API.\");",
-            "}",
-            "return Functions.encodeString(chatbotReply);"
+    // ===== Off-chain JavaScript (with hardcoded API key for hackathon ONLY) =====
+    // - Reduces model tokens and truncates reply on the DON to keep callback gas low.
+    string private constant SOURCE = string(
+    abi.encodePacked(
+        "try {",
+        "    const apiResponse = await Functions.makeHttpRequest({",
+        "        url: \"https://api.openai.com/v1/chat/completions\",",
+        "        method: \"POST\",",
+        "        headers: {",
+        "            \"Content-Type\": \"application/json\",",
+        "            \"Authorization\": \"Bearer **apikey obfuscated**\"",
+        "        },",
+        "        data: {",
+        "            model: \"gpt-3.5-turbo\",",
+        "            messages: [{ role: \"user\", content: args[0] }],",
+        "            max_tokens: 50",
+        "        }",
+        "    });",
+        "",
+        "    let chatbotReply = \"No reply\";",
+        "    if (apiResponse && apiResponse.data && apiResponse.data.choices && apiResponse.data.choices[0] && apiResponse.data.choices[0].message && apiResponse.data.choices[0].message.content) {",
+        "        chatbotReply = String(apiResponse.data.choices[0].message.content).trim().slice(0, 200);",
+        "    }",
+        "",
+        "    return Functions.encodeString(chatbotReply);",
+        "} catch (e) {",
+        "    return Functions.encodeString(`Error: ${String(e)}`);",
+        "}"
         )
     );
 
-    // Callback gas limit
-    uint32 gasLimit = 300000;
+    constructor() FunctionsClient(ROUTER) ConfirmedOwner(msg.sender) {}
 
-    // donID - Hardcoded for Sepolia
-    bytes32 donID =
-        0x66756e2d657468657265756d2d7365706f6c69612d3100000000000000000000;
-
-    constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
-
-    /**
-     * @notice Sends an HTTP request
-     */
-    function sendRequest(
+    // ===== User entrypoint =====
+    /// @notice Sends a request to ChatGPT through Chainlink Functions
+    /// @param subscriptionId Your Functions billing subscription ID
+    /// @param question A single question string (non-empty)
+    function askQuestion(
         uint64 subscriptionId,
-        string[] calldata args
-    ) external onlyOwner returns (bytes32 requestId) {
-        FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(source);
-        if (args.length > 0) req.setArgs(args);
+        string calldata question
+    ) external onlyOwner returns (bytes32) {
+        require(subscriptionId != 0, "Bad subId");
+        require(bytes(question).length != 0, "Empty question");
 
-        s_lastRequestId = _sendRequest(
+        FunctionsRequest.Request memory req;
+        req.initializeRequestForInlineJavaScript(SOURCE);
+
+        string[] memory args = new string[](1);
+        args[0] = question;
+        req.setArgs(args);
+
+        lastRequestId = _sendRequest(
             req.encodeCBOR(),
             subscriptionId,
-            gasLimit,
-            donID
+            CALLBACK_GAS_LIMIT,
+            DON_ID
         );
 
-        return s_lastRequestId;
+        return lastRequestId;
     }
 
-    /**
-     * @notice Callback from Chainlink Functions
-     */
+    // ===== DON callback =====
+    /// @dev Do NOT revert here — failed callbacks are lost. Always record something readable.
     function fulfillRequest(
         bytes32 requestId,
         bytes memory response,
         bytes memory err
     ) internal override {
-        if (s_lastRequestId != requestId) {
-            revert UnexpectedRequestID(requestId);
+        if (lastRequestId != requestId) {
+            lastError = abi.encodePacked("Mismatched requestId");
+            emit Response(requestId, "", response, lastError);
+            return;
         }
 
-        s_lastResponse = response;
-        s_lastError = err;
+        lastResponse = response;
+        lastError = err;
 
-        if (err.length == 0 && response.length > 0) {
-            // Decode the CBOR-encoded bytes into a string
-            player = abi.decode(response, (string));
+        // Instead of decoding, just store raw CBOR as a hex string
+        if (response.length > 0) {
+            lastAnswer = string(abi.encodePacked(response));
         } else {
-            player = "";
+            lastAnswer = "";
         }
 
-        emit Response(requestId, player, s_lastResponse, s_lastError);
+        emit Response(requestId, lastAnswer, response, err);
     }
 
-    /**
-     * @notice Returns the last error string
-     */
+
+    /// @dev Helper used only for guarded decoding above
+    function _decodeString(bytes memory data) public pure returns (string memory) {
+        return abi.decode(data, (string));
+    }
+
+    /// @notice Returns the last error as a UTF-8 string
     function getLastError() external view returns (string memory) {
-        return string(s_lastError);
+        return string(lastError);
     }
 }
