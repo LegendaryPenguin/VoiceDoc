@@ -8,11 +8,14 @@ import {
   History,
   FileText,
   Pill,
-  TestTube, // if you get an icon error, switch to TestTube2
+  TestTube,
   Calendar,
   Activity,
   X,
 } from 'lucide-react';
+
+// ✅ Add this import
+import { AuthButton } from '@coinbase/cdp-react/components/AuthButton';
 
 export default function Sidebar({
   isOpen,
@@ -23,7 +26,6 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
 
-  // No "comingSoon" flags anymore
   const items = [
     { href: '/', label: 'New Consult', icon: MessageCircle },
     { href: '/consults', label: 'Consults', icon: History },
@@ -35,12 +37,10 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Overlay (always, not just on mobile) */}
       {isOpen && (
         <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       )}
 
-      {/* Off-canvas sidebar (never pinned open) */}
       <aside
         className={`fixed left-0 top-0 h-full w-80 bg-white shadow-xl border-r border-gray-200 z-50 transform transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
@@ -84,11 +84,10 @@ export default function Sidebar({
             })}
           </nav>
 
-          {/* CTA (keep, nothing below it) */}
+          {/* CTA -> CDP AuthButton */}
           <div className="mt-8">
-            <button className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition">
-              Join now free
-            </button>
+            {/* The AuthButton opens the CDP sign-in modal and also handles sign-out */}
+            <AuthButton className="w-full" />
           </div>
         </div>
       </aside>

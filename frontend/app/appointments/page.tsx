@@ -1,6 +1,7 @@
 import React from 'react';
 import AppShell from '../components/AppShell';
 import { Calendar, Clock, Video, Plus } from 'lucide-react';
+import App from 'next/app';
 
 const AppointmentsPage = () => {
   const upcomingAppts = [
@@ -25,7 +26,7 @@ const AppointmentsPage = () => {
   ];
 
   return (
-    <Layout>
+    <AppShell>
       <div className="p-6 max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -112,7 +113,7 @@ const AppointmentsPage = () => {
           </div>
         </div>
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 

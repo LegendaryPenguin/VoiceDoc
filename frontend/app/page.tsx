@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import AppShell from "./components/AppShell";
 import { Mic, MicOff, Send, Lock, Download, Loader2 } from "lucide-react";
+import { useEvmAddress, useIsSignedIn } from "@coinbase/cdp-hooks";
 
 // chat message shape
 type Msg = { id: string; role: "user" | "ai"; text: string; at: number };
@@ -43,8 +44,21 @@ export default function Page() {
   const [interim, setInterim] = useState(""); // live partial speech
   const [thinking, setThinking] = useState(false); // demo spinner
 
+  // Wallet state (used to key local storage per user)
+  // Different SDK versions return either a string or { evmAddress }
+  const evmAddrRaw: any = useEvmAddress?.();
+  const evmAddress: string | undefined =
+    typeof evmAddrRaw === "string" ? evmAddrRaw : evmAddrRaw?.evmAddress ?? undefined;
+
+  // If you need it later:
+  // const { isSignedIn } = useIsSignedIn();
+
   const recRef = useRef<WebSpeechRecognition | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ----- Per-wallet transcript key (stable string) -----
+  const storageKey = `voicedoc:${evmAddress ?? "guest"}`;
+  const loadedKeyRef = useRef<string | null>(null);
 
   // stamp stable time after mount
   useEffect(() => {
@@ -52,6 +66,29 @@ export default function Page() {
       m.map((x) => (x.id === "welcome" && x.at === 0 ? { ...x, at: Date.now() } : x))
     );
   }, []);
+
+  // Load ONCE per storageKey (prevents setState loops)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (loadedKeyRef.current === storageKey) return; // already loaded for this key
+
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Msg[];
+        setMsgs(parsed);
+      } catch {
+        // ignore malformed localStorage
+      }
+    }
+    loadedKeyRef.current = storageKey;
+  }, [storageKey]);
+
+  // Persist when msgs or key changes (write-only; safe)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(storageKey, JSON.stringify(msgs));
+  }, [storageKey, msgs]);
 
   // auto-scroll chat
   useEffect(() => {
@@ -329,7 +366,10 @@ function summarizeForDoctor(allMsgs: Msg[]): string {
     /\bspo2\b|\boxygen\b/,
   ]);
 
-  const onset = matchAll(allUserText, /\b(since|for|started|onset)\b.*?(?:\bago\b|days?|weeks?|months?|years?)/g);
+  const onset = matchAll(
+    allUserText,
+    /\b(since|for|started|onset)\b.*?(?:\bago\b|days?|weeks?|months?|years?)/g
+  );
   const durations = matchAll(allUserText, /\b\d+\s+(?:day|week|month|year)s?\b/g);
 
   const redFlagsList = [

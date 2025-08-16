@@ -1,6 +1,7 @@
 import React from 'react';
 import AppShell from '../components/AppShell';
 import { Clock, MessageCircle, User } from 'lucide-react';
+import App from 'next/app';
 
 const ConsultsPage = () => {
   const consultHistory = [
@@ -31,7 +32,7 @@ const ConsultsPage = () => {
   ];
 
   return (
-    <Layout>
+    <AppShell>
       <div className="p-6 max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Consults</h1>
@@ -79,7 +80,7 @@ const ConsultsPage = () => {
           </div>
         )}
       </div>
-    </Layout>
+    </AppShell>
   );
 };
 
