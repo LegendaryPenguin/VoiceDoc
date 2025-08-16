@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-//import { createSupabaseServerClient } from "@/lib/supabase/server-client";
 import { circleContractSdk } from "@/lib/utils/smart-contract-platform-client";
 import { circleDeveloperSdk } from "@/lib/utils/developer-controlled-wallets-client";
-//import { createAgreementService } from "@/app/services/agreement.service";
-import { convertUSDCToContractAmount, parseAmount } from "@/lib/utils/amount";
-import { EscrowAgreement } from "@/types/agreements";
+import { convertUSDCToContractAmount } from "@/lib/utils/amount";
 
-// Note: The following database operations are commented out because the required services are not initialized
+interface EscrowApproveRequest {
+  circle_contract_id: string;
+  beneficiary_wallet_id: string;
+  depositor_wallet_id: string;
+  amountUSDC: number;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    //const supabase = createSupabaseServerClient();
-    //const agreementService = createAgreementService(supabase);
-    const body: EscrowAgreement = await req.json();
+    const body: EscrowApproveRequest = await req.json();
 
     if (!body.circle_contract_id) {
       return NextResponse.json(
@@ -20,54 +20,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    // // Gets the escrow agreement circle_contract_id
-    // // This will be used to get more information about the agreement using Circle's SDK
-    // const { data: contractTransaction, error: contractTransactionError } = await supabase
-    //   .from("escrow_agreements")
-    //   .select()
-    //   .eq("circle_contract_id", body.circleContractId)
-    //   .single();
-
-    // if (contractTransactionError) {
-    //   console.error("Could not find a contract with such depositor wallet ID", contractTransactionError);
-    //   return NextResponse.json({ error: "Could not find a contract with such depositor wallet ID" });
-    // }
-
-    // const {
-    //   data: { user }
-    // } = await supabase.auth.getUser();
-
-    // if (!user) {
-    //   console.error("User is not authenticated");
-    //   return NextResponse.json({ error: "User is not authenticated" }, { status: 401 });
-    // }
-
-    // // Gets the currently logged in user id from their auth_user_id
-    // // This will be used to get the user circle_wallet_id
-    // const { data: userId, error: userIdError } = await supabase
-    //   .from("profiles")
-    //   .select("id")
-    //   .eq("auth_user_id", user?.id)
-    //   .single();
-
-    // if (userIdError) {
-    //   console.error("Could not retrieve the currently logged in user id:", userIdError);
-    //   return NextResponse.json({ error: "Could not retrieve the currently logged in user id" }, { status: 500 })
-    // }
-
-    // // Gets the currently logged in user circle_wallet_id based on their user id
-    // // This will be used to get the escrow agreement circle_contract_id
-    // const { data: depositorWallet, error: depositorWalletError } = await supabase
-    //   .from("wallets")
-    //   .select()
-    //   .eq("profile_id", userId.id)
-    //   .single();
-
-    // if (depositorWalletError) {
-    //   console.error("Could not find a profile linked to the given wallet ID", depositorWalletError);
-    //   return NextResponse.json({ error: "Could not find a profile linked to the given wallet ID" }, { status: 500 });
-    // }
 
     // Retrieves contract data from Circle's SDK
     const contractData = await circleContractSdk.getContract({
@@ -85,18 +37,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Could not retrieve contract address" }, { status: 500 })
     }
 
-    // Validate that amounts exist and have at least one entry
-    if (!body.terms.amounts || body.terms.amounts.length === 0 || !body.terms.amounts[0].amount) {
-      return NextResponse.json({ error: "Missing required amount in agreement terms" }, { status: 400 });
-    }
-
-    const parsedAmount = parseAmount(body.terms.amounts[0].amount);
-    const contractAmount = Number(convertUSDCToContractAmount(parsedAmount))
+    const contractAmount = Number(convertUSDCToContractAmount(body.amountUSDC))
 
     const circleApprovalResponse = await circleDeveloperSdk.createContractExecutionTransaction({
       abiFunctionSignature: "approve(address,uint256)",
       abiParameters: [contractAddress, contractAmount],
-      contractAddress: process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS || "",
+      contractAddress: process.env.NEXT_PUBLIC_USDC_AMOY_CONTRACT_ADDRESS || "",
       fee: {
         type: "level",
         config: {
@@ -106,22 +52,7 @@ export async function POST(req: NextRequest) {
       walletId: body.depositor_wallet_id
     });
 
-    // await agreementService.createTransaction({
-    //   walletId: depositorWallet.id,
-    //   circleTransactionId: circleApprovalResponse.data?.id,
-    //   escrowAgreementId: contractTransaction.id,
-    //   transactionType: "DEPOSIT_APPROVAL",
-    //   profileId: depositorWallet.profile_id,
-    //   amount: Number(parsedAmount),
-    //   description: "Request for deposit approval",
-    // });
-
     console.log("Deposit approval transaction created:", circleApprovalResponse.data);
-
-    // await supabase
-    //   .from("escrow_agreements")
-    //   .update({ status: "PENDING" })
-    //   .eq("circle_contract_id", contractData.data.contract.id);
 
     return NextResponse.json(
       {
