@@ -1,17 +1,3 @@
-export interface DocumentAnalysis {
-  amounts: Array<{
-    full_amount: string;
-    payment_for: string;
-    location: string;
-  }>;
-  tasks: Array<{
-    task_description: string;
-    due_date: string | null;
-    responsible_party: string;
-    additional_details: string;
-  }>;
-}
-
 export interface EscrowAgreement {
   circle_contract_id: string;
   beneficiary_wallet_id: string;
@@ -56,16 +42,4 @@ export interface EscrowAgreement {
     status: string;
     circle_contract_address: string;
   };
-}
-
-
-export interface CreateAgreementProps {
-  beneficiaryWalletId?: string;
-  depositorWalletId?: string;
-  userId: string;
-  userProfileId?: string;
-  onAnalysisComplete?: (
-    analysis: DocumentAnalysis,
-    agreement: EscrowAgreement
-  ) => void;
 }

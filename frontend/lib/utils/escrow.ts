@@ -26,6 +26,6 @@ export const formatAmount = (amount: number, currency: string) => {
       maximumFractionDigits: 2,
     }).format(amount);
   } catch (error) {
-    throw new Error(`Invalid currency code: ${currency}`);
+    throw new Error(`Invalid currency code: ${currency} Error: ${error}`);
   }
 };

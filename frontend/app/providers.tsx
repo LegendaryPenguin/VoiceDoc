@@ -3,7 +3,7 @@
 import { CDPReactProvider } from "@coinbase/cdp-react";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
-  const projectId = process.env.NEXT_PUBLIC_CDP_PROJECT_ID;
+  const projectId = process.env.NEXT_PUBLIC_CDP_PROJECT_ID as string;
 
   if (!projectId) {
     console.error("Missing NEXT_PUBLIC_CDP_PROJECT_ID in .env.local");
