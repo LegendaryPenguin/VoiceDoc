@@ -9,6 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@circle-fin/developer-controlled-wallets": "^8.4.0",
+    "@circle-fin/smart-contract-platform": "^8.4.0",
+    "@circle-fin/user-controlled-wallets": "^8.4.0",
     "@coinbase/cdp-core": "^0.0.20",
     "@coinbase/cdp-hooks": "^0.0.20",
     "@coinbase/cdp-react": "^0.0.20",
