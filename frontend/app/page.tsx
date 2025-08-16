@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import AppShell from "./components/AppShell";
 import { Mic, MicOff, Send, Lock, Download, Loader2 } from "lucide-react";
-import { useEvmAddress, useIsSignedIn } from "@coinbase/cdp-hooks";
+import { useEvmAddress } from "@coinbase/cdp-hooks";
+import { saveConsult, normalizeAddr, type Consult } from "./lib/consults";
 
 // chat message shape
 type Msg = { id: string; role: "user" | "ai"; text: string; at: number };
@@ -44,20 +45,15 @@ export default function Page() {
   const [interim, setInterim] = useState(""); // live partial speech
   const [thinking, setThinking] = useState(false); // demo spinner
 
-  // Wallet state (used to key local storage per user)
-  // Different SDK versions return either a string or { evmAddress }
-  const evmAddrRaw: any = useEvmAddress?.();
-  const evmAddress: string | undefined =
-    typeof evmAddrRaw === "string" ? evmAddrRaw : evmAddrRaw?.evmAddress ?? undefined;
-
-  // If you need it later:
-  // const { isSignedIn } = useIsSignedIn();
+  // Wallet (string or object in some SDK versions) → normalize to string | undefined
+  const evmAddrRaw: any = useEvmAddress();
+  const addr = normalizeAddr(evmAddrRaw);
 
   const recRef = useRef<WebSpeechRecognition | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ----- Per-wallet transcript key (stable string) -----
-  const storageKey = `voicedoc:${evmAddress ?? "guest"}`;
+  const storageKey = `voicedoc:${addr ?? "guest"}`;
   const loadedKeyRef = useRef<string | null>(null);
 
   // stamp stable time after mount
@@ -178,18 +174,95 @@ export default function Page() {
     simulateAIReply();
   };
 
-  /** ------- Doctor summary download (TXT) ------- **/
-  const endChatAndDownload = () => {
-    const txt = summarizeForDoctor(msgs);
-    const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    a.href = url;
-    a.download = `voicedoc-summary-${ts}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  /** ------- Save consult (wallet-scoped) + Download TXT summary ------- **/
+  // --- REPLACE your current endChatAndDownload with this ---
+const endChatAndDownload = () => {
+  const fullTxt = summarizeForDoctor(msgs);
+
+  // Analyze the conversation to get: symptomsTitle, synopsis, recommendation
+  const { symptomsTitle, synopsis, recommendation } = analyzeConsult(msgs);
+
+  // Rough duration from first->last timestamp (if present)
+  const times = msgs.map((m) => m.at).filter((n) => n && n > 0).sort((a, b) => a - b);
+  const durationSec =
+    times.length >= 2 ? Math.round((times.at(-1)! - times[0]) / 1000) : undefined;
+
+  // Create consult record with new fields
+  const consult: Consult = {
+    id: crypto.randomUUID(),
+    // new fields:
+    symptomsTitle,                    // <- TITLE shown on the card
+    conversationSummary: synopsis,    // <- DESCRIPTION on the card
+    recommendation,                   // <- doctor | monitor
+
+    // keep existing fields for compatibility
+    title: symptomsTitle,
+    preview: synopsis,
+    summary: fullTxt,
+
+    createdAt: Date.now(),
+    durationSec,
+    messageCount: msgs.length,
   };
+
+  saveConsult(addr, consult);
+
+  // Download TXT summary (unchanged)
+  const blob = new Blob([fullTxt], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  a.href = url;
+  a.download = `voicedoc-summary-${ts}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// --- ADD these helpers (below your other helpers) ---
+
+function analyzeConsult(allMsgs: Msg[]) {
+  const users = allMsgs.filter((m) => m.role === "user").map((m) => m.text.trim());
+  const allUserLower = users.join(" ").toLowerCase();
+
+  // Symptoms extraction (simple keyword pass)
+  const SYMPTOMS = [
+    "chest pain","shortness of breath","headache","fever","cough","sore throat",
+    "nausea","vomiting","diarrhea","fatigue","rash","dizziness","abdominal pain",
+    "stomach pain","back pain","congestion","runny nose","body aches","chills"
+  ];
+  const found = Array.from(
+    new Set(
+      SYMPTOMS.filter((s) => allUserLower.includes(s)).map((s) => titleCase(s))
+    )
+  );
+
+  // Durations like "3 days", "2 weeks"
+  const durations = matchAll(allUserLower, /\b\d+\s+(?:day|week|month|year)s?\b/g);
+
+  // Compose short, readable title like "Chest pain, Shortness of breath"
+  const symptomsTitle =
+    found.length ? found.slice(0, 3).join(", ") : (users[0] || "General symptoms");
+
+  // Build a 1–2 sentence synopsis (card description)
+  const durationPart = durations.length ? ` for ${durations[0]}` : "";
+  const synopsis = `Patient reports ${symptomsTitle.toLowerCase()}${durationPart}. Conversation captured and summarized for review.`;
+
+  // Recommendation (rule of thumb): red flags → "doctor", else "monitor"
+  const RED_FLAGS = [
+    "chest pain","shortness of breath","severe headache","fainted","unconscious",
+    "heavy bleeding","vision loss","slurred speech","confusion","stiff neck",
+    "high fever"
+  ];
+  const hasRedFlag = RED_FLAGS.some((k) => allUserLower.includes(k));
+  const recommendation: "doctor" | "monitor" = hasRedFlag ? "doctor" : "monitor";
+
+  return { symptomsTitle, synopsis, recommendation };
+}
+
+function titleCase(s: string) {
+  return s.replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1));
+}
+
 
   const fmtTime = (ms: number) =>
     ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "now";
@@ -205,8 +278,8 @@ export default function Page() {
         <div className="mt-8 space-y-4 text-gray-800 text-lg leading-relaxed">
           <p>I&apos;m your private and personal AI doctor.</p>
           <p>
-            As an AI health assistant, my service is fast and free. After we chat, you can book a video visit
-            with a top doctor if you want.
+            As an AI health assistant, my service is fast and free. After we chat, you can book a
+            video visit with a top doctor if you want.
           </p>
           <p>What can I help you with today?</p>
         </div>

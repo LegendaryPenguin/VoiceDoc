@@ -19,7 +19,7 @@ const DEMO_RECORD: RecordItem = {
   id: 'demo-1',
   dateISO: new Date().toISOString(),
   title: 'Visit Summary',
-  subtitle: 'Auto-generated from conversation',
+  subtitle: 'Childrens Mercy Hospital',
   notes:
     'Chief complaint: Example — headache and fatigue for 3 days.\n' +
     'Symptom summary: Dull headache, worse in afternoon; mild fatigue; no fever.\n' +
