@@ -19,9 +19,9 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
     // ===== Events =====
     event Response(bytes32 indexed requestId, string answer, bytes rawResponse, bytes error);
 
-    // ===== Chainlink config (Sepolia) =====
-    address constant ROUTER = 0xb83E47C2bC239B3bf370bc41e1459A34b41238D0;
-    bytes32 constant DON_ID = 0x66756e2d657468657265756d2d7365706f6c69612d3100000000000000000000; // sepolia-1
+    // ===== Chainlink config (FUJI) =====
+    address constant ROUTER = 0xA9d587a00A31A52Ed70D6026794a8FC5E2F5dCb0;
+    bytes32 constant DON_ID = 0x66756e2d6176616c616e6368652d66756a692d31000000000000000000000000; // sepolia-1
 
     // IMPORTANT: Sepolia DON currently caps callback gas at ~300,000.
     // Setting higher will revert during send (gas estimation failure with unknown custom error).
@@ -37,7 +37,7 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
         "        method: \"POST\",",
         "        headers: {",
         "            \"Content-Type\": \"application/json\",",
-        "            \"Authorization\": \"Bearer **apikey obfuscated**\"",
+        "            \"Authorization\": \"Bearer *APIKEYHERE*\"",
         "        },",
         "        data: {",
         "            model: \"gpt-3.5-turbo\",",
