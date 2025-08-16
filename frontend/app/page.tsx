@@ -35,7 +35,7 @@ export default function Page() {
       id: "welcome",
       role: "ai",
       text:
-        "Hi, I’m your AI health assistant. Tap the mic, speak naturally, and I’ll keep a transcript here.",
+        "Hi, I'm your AI health assistant. Tap the mic, speak naturally, and I'll keep a transcript here.",
       at: 0, // set after mount to avoid hydration mismatch
     },
   ]);
@@ -167,7 +167,7 @@ export default function Page() {
     setThinking(true);
     await new Promise((r) => setTimeout(r, 700));
     setThinking(false);
-    pushAI("Thanks — I’ve added that to your transcript. (Demo reply; backend coming soon.)");
+    pushAI("Thanks — I've added that to your transcript. (Demo reply; backend coming soon.)");
   };
 
   const onSubmit = (e: React.FormEvent) => {
@@ -205,7 +205,7 @@ export default function Page() {
         <div className="mt-8 space-y-4 text-gray-800 text-lg leading-relaxed">
           <p>I&apos;m your private and personal AI doctor.</p>
           <p>
-            As an AI doctor, my service is fast and free. After we chat, you can book a video visit
+            As an AI health assistant, my service is fast and free. After we chat, you can book a video visit
             with a top doctor if you want.
           </p>
           <p>What can I help you with today?</p>
