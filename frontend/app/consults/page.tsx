@@ -92,7 +92,7 @@ export default function ConsultsPage() {
         <div className="mb-2">
           <h1 className="text-3xl font-bold text-gray-900">Your Consults</h1>
           <p className="text-gray-600">
-            Consultation history saved to your wallet account
+            Please note that VoiceDoc is for general information only and is not medical advice, doesn’t create a doctor–patient relationship, and shouldn’t be relied on for diagnosis or treatment. If you are having an emergency or feel rising symptoms, please call 911 or visit your local doctor.
           </p>
         </div>
 
