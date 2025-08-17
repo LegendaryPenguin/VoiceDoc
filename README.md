@@ -48,10 +48,12 @@ Lets imagine what a possible patient and clinic journey can look like with our p
 Predictable cost (you see the cap first).
 No surprise bills and instant refunds of unused funds.
 Less friction: one place to talk, book, pay, and access your medical passport.
+
 **For clinicians**
 Fewer no-shows and faster starts because payment is secured before the visit.
 Zero time on refunds and fewer back-office billing tasks.
 Clear documentation handed to you, not typed from scratch.
+
 **For payers & systems**
 Cleaner authorization and settlement data in real time.
 Lower leakage from abandoned payments and collections.
