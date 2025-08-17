@@ -1,5 +1,7 @@
 # VoiceDoc
 
+<img width="1664" height="852" alt="Screenshot 2025-08-17 035247" src="https://github.com/user-attachments/assets/7c64d243-45e8-42b3-b211-f544fc2aae51" />
+
 ## Problem (what patients and clinicians face today)
 
 **Not enough clinicians, longer waits:** The U.S. is on track for a shortage of up to 86,000 physicians by 2036 and a growing share of current doctors are nearing retirement age. New-patient appointment waits have climbed to 31 days on average across major metros (up 19% since 2022).
