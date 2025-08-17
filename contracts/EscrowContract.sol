@@ -64,7 +64,6 @@ contract EscrowUSDCContract {
 
     /// @notice Pull-based funding path (EOA approves & we pull funds).
     function deposit() external nonReentrant {
-        require(msg.sender == depositor, "ERR:NOT_DEPOSITOR");
         require(stage == Stage.OPEN, "ERR:BAD_STAGE");
         require(usdc.balanceOf(depositor) >= amount, "ERR:LOW_BAL");
         require(usdc.allowance(depositor, address(this)) >= amount, "ERR:LOW_ALLOW");
