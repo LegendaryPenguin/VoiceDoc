@@ -16,6 +16,7 @@ If the clinician prefers traditional dollars, they can cash out to USD seamlessl
 Your Medical Passport (a privacy-preserving, portable record pointer) updates after each visit so future care picks up where you left off.
 
 **The story (patient & clinic journey)**
+
 Lets imagine what a possible patient and clinic journey can look like with our patient Maya and doctor Alvarez.
 
 **Maya (patient)**
