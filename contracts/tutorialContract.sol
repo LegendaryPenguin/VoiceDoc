@@ -29,34 +29,38 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
 
     // ===== Off-chain JavaScript (with hardcoded API key for hackathon ONLY) =====
     // - Reduces model tokens and truncates reply on the DON to keep callback gas low.
+    // ===== Off-chain JavaScript (adds a hardcoded system prompt) =====
     string private constant SOURCE = string(
     abi.encodePacked(
         "try {",
-        "    const apiResponse = await Functions.makeHttpRequest({",
-        "        url: \"https://api.openai.com/v1/chat/completions\",",
-        "        method: \"POST\",",
-        "        headers: {",
-        "            \"Content-Type\": \"application/json\",",
-        "            \"Authorization\": \"Bearer *APIKEYHERE*\"",
-        "        },",
-        "        data: {",
-        "            model: \"gpt-3.5-turbo\",",
-        "            messages: [{ role: \"user\", content: args[0] }],",
-        "            max_tokens: 50",
-        "        }",
-        "    });",
+        "  const SYSTEM = \"You are a telehealth nurse. You have a limit of 256 bytes for your response, so if you get a lengthy answer just add follow up questions instead of going over every possible result. \";",
+        "  const question = args[0] || \"\";",
+        "  const prompt = SYSTEM + \"\\n\\nUser: \" + question + \"\\nAssistant:\";",
         "",
-        "    let chatbotReply = \"No reply\";",
-        "    if (apiResponse && apiResponse.data && apiResponse.data.choices && apiResponse.data.choices[0] && apiResponse.data.choices[0].message && apiResponse.data.choices[0].message.content) {",
-        "        chatbotReply = String(apiResponse.data.choices[0].message.content).trim().slice(0, 200);",
+        "  const apiResponse = await Functions.makeHttpRequest({",
+        "    url: \"https://api.openai.com/v1/chat/completions\",",
+        "    method: \"POST\",",
+        "    headers: {",
+        "      \"Content-Type\": \"application/json\",",
+        "      \"Authorization\": \"Bearer *apikeyhere*"",
+        "    },",
+        "    data: {",
+        "      model: \"gpt-3.5-turbo\",",
+        "      messages: [{ role: \"user\", content: prompt }],",
+        "      max_tokens: 150",
         "    }",
+        "  });",
         "",
-        "    return Functions.encodeString(chatbotReply);",
+        "  let chatbotReply = \"No reply\";",
+        "  if (apiResponse && apiResponse.data && apiResponse.data.choices && apiResponse.data.choices[0] && apiResponse.data.choices[0].message && apiResponse.data.choices[0].message.content) {",
+        "    chatbotReply = String(apiResponse.data.choices[0].message.content).trim().slice(0, 256);",
+        "  }",
+        "",
+        "  return Functions.encodeString(chatbotReply);",
         "} catch (e) {",
-        "    return Functions.encodeString(`Error: ${String(e)}`);",
+        "  return Functions.encodeString(`Error: ${String(e)}`);",
         "}"
-        )
-    );
+    ));
 
     constructor() FunctionsClient(ROUTER) ConfirmedOwner(msg.sender) {}
 
@@ -67,7 +71,7 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
     function askQuestion(
         uint64 subscriptionId,
         string calldata question
-    ) external onlyOwner returns (bytes32) {
+    ) external returns (bytes32) {
         require(subscriptionId != 0, "Bad subId");
         require(bytes(question).length != 0, "Empty question");
 
