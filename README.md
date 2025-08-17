@@ -25,6 +25,7 @@ Pre-authorize: With one tap, Maya pays a base appointment fee for the visit. She
 Visit: Instead of paperwork and payment hurdles, a clinician sees Maya immediately, reviews the concise summary, provides service and focuses on care not paperwork.
 Settle: The visit costs less than the cap. Only the actual fee is captured and the remaining is returned instantly.
 Takeaway: Maya gets a doctor-friendly summary and her Medical Passport updates with relevant medical record, prescription, or lab work updates so she won’t repeat her story.
+
 **Dr. Alvarez (clinic)**
 Before the visit: The patient’s funds are secured for today’s appointment, so the doctor can start on time without chasing payment.
 After the visit: The clinic captures exactly the agreed fee in one click from the escrow account without manual refunds or awkward billing calls.
