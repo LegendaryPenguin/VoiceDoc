@@ -50,6 +50,7 @@ export default function Page() {
   const [deploying, setDeploying] = useState(false); // deploy contract state
   const [statusMessage, setStatusMessage] = useState<string | null>(null); // status messages
   const [contractAddress, setContractAddress] = useState<string | null>(null); // deployed contract address
+  const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
 
   // wallet
   const evmAddrRaw: any = useEvmAddress();
@@ -197,17 +198,18 @@ export default function Page() {
     setInput('');
   };
 
-  // Deploy escrow contract function
-  const handleDeployContract = async () => {
+  //region == ESCROW ==
+  const handleEscrowPayment = async () => {
     if (deploying) return; // Prevent multiple clicks
+    if (!addr) return; // Requires patient address
     
     setDeploying(true);
     setStatusMessage("Deploying escrow contract...");
     
     try {
-      const depositorAddress = "0x1234567890123456789012345678901234567890";  // THIS IS THE PATIENT ADDRESS
+      const depositorAddress = addr;
       const beneficiaryAddress = "0x0987654321098765432109876543210987654321"; // THIS IS THE DRS ADDRESS
-      const amountUSDC = 5; // 5 USDC
+      const amountUSDC = 1; // 1 USDC
       
       setStatusMessage("Sending deployment request...");
       
@@ -252,10 +254,11 @@ export default function Page() {
       setTimeout(() => setStatusMessage(null), 5000);
     } finally {
       setDeploying(false);
+      handleBurnFromBase();
     }
   };
 
-  // Burn function with pre-defined contract address and 5 USDC
+  // Burn function with pre-defined contract address and 1 USDC
   const handleBurnFromBase = async () => {
     if (burning) return; // Prevent multiple clicks
     if (!contractAddress) return;
@@ -266,7 +269,7 @@ export default function Page() {
     try {
       // Pre-defined escrow contract address (you can change this to any valid address)
       const escrowContractAddress = contractAddress as `0x${string}`;
-      const amountUSDC = 5; // 5 USDC
+      const amountUSDC = 1; // 1 USDC
       
       setStatusMessage("Please confirm the transaction in your wallet...");
       
@@ -277,25 +280,27 @@ export default function Page() {
       });
       
       setStatusMessage(`Success! Transaction hash: ${result.txHash}`);
-      pushAI(`Burn transaction completed successfully! 5 USDC burned from Base to escrow contract. Transaction: ${result.txHash}`);
+      pushAI(`Burn transaction completed successfully! 1 USDC burned from Base to escrow contract. Transaction: ${result.txHash}. The finalization process will take about 20 minutes to complete automatically.`);
       
-      // 2) Finalize on Polygon Amoy (server signer)
-      const res = await fetch("/api/contracts/cctp", {
+      // 2) Finalize on Polygon Amoy (server signer) - Fire and forget, don't block UI
+      fetch("/api/contracts/cctp", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           txHash: result.txHash,
           expectedMintRecipient: escrowContractAddress
         }),
+      }).then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          pushAI(`CCTP finalization completed! The USDC has been successfully transferred to the escrow contract on Polygon Amoy. Details: ${JSON.stringify(data)}`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          pushAI(`CCTP finalization encountered an issue: ${err.error || "Finalization failed"}. This may resolve automatically or require manual intervention.`);
+        }
+      }).catch((error) => {
+        pushAI(`CCTP finalization error: ${error.message}. This may resolve automatically or require manual intervention.`);
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Finalize failed");
-      }
-      const data = await res.json();
-
-      pushAI(`Transfer to smart contract completed successfully! 5 USDC burned from Base to escrow contract. Transaction: ${data}`);
 
       // Clear status after 5 seconds
       setTimeout(() => setStatusMessage(null), 5000);
@@ -345,6 +350,16 @@ export default function Page() {
     a.download = `voicedoc-summary-${ts}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+
+    setMsgs([
+      {
+        id: 'welcome',
+        role: 'ai',
+        text:
+          "Hi, I'm your AI health assistant. Tap the mic, speak naturally, and I'll keep a transcript here.",
+        at: 0,
+      },
+    ])
   };
 
   function analyzeConsult(allMsgs: Msg[]) {
@@ -388,6 +403,7 @@ export default function Page() {
   const fmtTime = (ms: number) =>
     ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
 
+  //region == RENDER ==
   return (
     <AppShell>
       {/* Hidden widget handles chain tx + callbacks */}
@@ -433,9 +449,9 @@ export default function Page() {
         </h1>
 
         <div className="mt-8 space-y-4 text-gray-800 text-lg leading-relaxed">
-          <p>I&apos;m your private and personal AI doctor.</p>
+          <p>I&apos;m your private and personal AI telehealth assistant.</p>
           <p>
-            As an AI health assistant, my service is fast and free. After we chat, you can book a
+            As an AI assistant, my service is fast and free. After we chat, you can book a
             video visit with a top doctor if you want.
           </p>
           <p>What can I help you with today?</p>
@@ -572,16 +588,16 @@ export default function Page() {
         )}
 
         <div className="mt-6 flex flex-col items-center gap-3">
-          {/* Deploy Contract Button */}
+          {/* Escrow Pay */}
           <button
-            onClick={handleDeployContract}
-            disabled={deploying}
+            onClick={handleEscrowPayment}
+            disabled={deploying || !appointmentDate}
             className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition ${
-              deploying
+              deploying || !appointmentDate
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-green-600 hover:bg-green-700 active:bg-green-800"
             }`}
-            title="Deploy new escrow contract"
+            title="Pre-pay your appointment for a seamless experience."
           >
             {deploying ? (
               <>
@@ -590,31 +606,8 @@ export default function Page() {
               </>
             ) : (
               <>
-                <Plus className="w-5 h-5" />
-                Deploy Escrow Contract
-              </>
-            )}
-          </button>
-          {/* Burn USDC Button */}
-          <button
-            onClick={handleBurnFromBase}
-            disabled={burning}
-            className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition ${
-              burning
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-orange-600 hover:bg-orange-700 active:bg-orange-800"
-            }`}
-            title="Burn 5 USDC from Base to escrow contract"
-          >
-            {burning ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
                 <Zap className="w-5 h-5" />
-                Burn 5 USDC from Base
+                Escrow Pay
               </>
             )}
           </button>

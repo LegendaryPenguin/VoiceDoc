@@ -1,123 +1,142 @@
-// hooks/burn.ts (ethers v6, Option A - Standard/No-Fee)
-import { ethers } from "ethers";
+// hooks/burnWithCDP.ts
+import { ethers } from 'ethers';
+import { getCurrentUser, isSignedIn, sendEvmTransaction } from '@coinbase/cdp-core';
+
 import {
   BASE_SEPOLIA_TOKEN_MESSENGER_V2,
-  POLYGON_AMOY_DOMAIN,                     // should be 7
+  POLYGON_AMOY_DOMAIN,
   BASE_SEPOLIA_USDC_CONTRACT_ADDRESS,
-} from "../constants";
+  BASE_SEPOLIA_RPC_URL,
+} from '@/lib/constants';
 
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: any[] }) => Promise<any>;
-      isMetaMask?: boolean;
-    };
-  }
-}
-
-export const BASE_SEPOLIA_CHAIN_ID_HEX = "0x14A34"; // 84532
+// --- ABIs (minimal) ---
+const ERC20_ABI = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function balanceOf(address) view returns (uint256)',
+  'function approve(address spender, uint256 value) returns (bool)',
+];
 
 const TOKEN_MESSENGER_V2_ABI = [
-  // v2 (we do NOT call getMinFeeAmount in Standard flow)
-  "function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) returns (bytes32 message)"
+  'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) returns (bytes32 message)',
 ];
 
-const ERC20_ABI = [
-  "function approve(address spender, uint256 value) returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function balanceOf(address) view returns (uint256)"
-];
+// --- Config ---
+const BASE_SEPOLIA_CHAIN_ID = 84532; // decimal (0x14A34)
 
-// Safer float → 6dp conversion (prefer passing a string in production)
-function toAmount6(n: number): bigint {
-  const s = n.toFixed(6);                 // clamp to 6 dp
-  return ethers.parseUnits(s, 6);
-}
+// helper: convert 5 -> 5_000_000 for USDC
+const toAmount6 = (n: number) => ethers.parseUnits(n.toFixed(6), 6);
 
-export async function burnFromBase({
-  escrowContractAddress,
-  amountUSDC,
-}: {
+// helper: ABI encoders
+const erc20Iface = new ethers.Interface(ERC20_ABI);
+const messengerIface = new ethers.Interface(TOKEN_MESSENGER_V2_ABI);
+
+export async function burnFromBase(params: {
   escrowContractAddress: `0x${string}`;
-  amountUSDC: number; // e.g., 5 for 5 USDC
+  amountUSDC: number;
+  minFinality?: number; 
 }) {
-  if (!window.ethereum) throw new Error("Wallet not available");
+  const { escrowContractAddress, amountUSDC, minFinality = 2000 } = params;
 
-  // --- 1) Ensure Base Sepolia
-  try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: BASE_SEPOLIA_CHAIN_ID_HEX }],
-    });
-  } catch (e: any) {
-    if (e?.code === 4902) {
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [{
-          chainId: BASE_SEPOLIA_CHAIN_ID_HEX,
-          chainName: "Base Sepolia",
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://sepolia.base.org"],
-          blockExplorerUrls: ["https://sepolia.basescan.org"],
-        }],
-      });
-    } else {
-      throw e;
-    }
+  // 0) Require signed-in user (you should handle sign-in flow elsewhere)
+  if (!(await isSignedIn())) {
+    throw new Error('User not signed in to Embedded Wallet');
   }
+  const user = await getCurrentUser();
+  const evmAccount = user?.evmAccounts?.[0];
+  if (!evmAccount) throw new Error('No EVM account in Embedded Wallet');
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  await provider.send("eth_requestAccounts", []);
-  const signer = await provider.getSigner();
-  const owner = await signer.getAddress();
-
-  // --- 2) Instances & params
-  const usdc = new ethers.Contract(
-    BASE_SEPOLIA_USDC_CONTRACT_ADDRESS,
-    ERC20_ABI,
-    signer
-  );
-  const messenger = new ethers.Contract(
-    BASE_SEPOLIA_TOKEN_MESSENGER_V2,
-    TOKEN_MESSENGER_V2_ABI,
-    signer
-  );
-
+  // 1) Read state / estimate via public RPC
+  const provider = new ethers.JsonRpcProvider(BASE_SEPOLIA_RPC_URL);
+  const owner = evmAccount as `0x${string}`;
   const amount6 = toAmount6(amountUSDC);
-  const mintRecipient = ethers.zeroPadValue(escrowContractAddress, 32); // bytes32
-  const destinationCaller = ethers.ZeroHash; // allow anyone to finalize
-  const maxFee = BigInt(0);                         // Standard transfer => no USDC fee
-  const minFinality = 2000;                  // Standard path
 
-  // Optional: user-friendly precheck
-  const bal = (await usdc.balanceOf(owner)) as bigint;
-  if (bal < amount6) {
-    throw new Error("Insufficient USDC balance on Base Sepolia");
-  }
+  // on-chain reads with ethers (no signing)
+  const usdc = new ethers.Contract(BASE_SEPOLIA_USDC_CONTRACT_ADDRESS, ERC20_ABI, provider);
+  const balance: bigint = await usdc.balanceOf(owner);
+  if (balance < amount6) throw new Error('Insufficient USDC on Base Sepolia');
 
-  // --- 3) Approve ONLY the amount (no fee needed in Standard)
-  const allowance = (await usdc.allowance(owner, BASE_SEPOLIA_TOKEN_MESSENGER_V2)) as bigint;
+  const allowance: bigint = await usdc.allowance(owner, BASE_SEPOLIA_TOKEN_MESSENGER_V2);
+
+  // current fee data / nonce for both txs
+  const [feeData, nonceNow] = await Promise.all([
+    provider.getFeeData(),
+    provider.getTransactionCount(owner, 'latest'),
+  ]);
+  const maxFeePerGas = feeData.maxFeePerGas ?? ethers.parseUnits('2', 'gwei');
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? ethers.parseUnits('1', 'gwei');
+
+  // 2) If needed, send APPROVE via CDP
+  let nextNonce = nonceNow;
   if (allowance < amount6) {
-    // Safe pattern (zero then set) if you ever hit non-standard tokens:
-    if (allowance > BigInt(0)) {
-      await (await usdc.approve(BASE_SEPOLIA_TOKEN_MESSENGER_V2, BigInt(0))).wait();
-    }
-    await (await usdc.approve(BASE_SEPOLIA_TOKEN_MESSENGER_V2, amount6)).wait();
+    const approveData = erc20Iface.encodeFunctionData('approve', [
+      BASE_SEPOLIA_TOKEN_MESSENGER_V2,
+      amount6,
+    ]) as `0x${string}`;
+
+    // estimate gas for approve
+    const approveGas = await provider.estimateGas({
+      from: owner,
+      to: BASE_SEPOLIA_USDC_CONTRACT_ADDRESS,
+      data: approveData,
+    });
+
+    const approveRes = await sendEvmTransaction({
+      evmAccount,
+      network: 'base-sepolia',
+      transaction: {
+        chainId: BASE_SEPOLIA_CHAIN_ID,
+        type: 'eip1559',
+        to: BASE_SEPOLIA_USDC_CONTRACT_ADDRESS as `0x${string}`,
+        data: approveData,
+        gas: approveGas + (approveGas / 10n), // +10% buffer
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        nonce: Number(nextNonce),
+        value: 0n,
+      },
+    });
+    nextNonce += 1;
+
+    await provider.waitForTransaction(approveRes.transactionHash)
   }
 
-  // --- 4) Burn (argument order is critical in v2)
-  const tx = await messenger.depositForBurn(
-    amount6,                               // 1) amount (6dp)
-    POLYGON_AMOY_DOMAIN,                   // 2) destinationDomain (7)
-    mintRecipient,                         // 3) bytes32(escrow on Amoy)
-    BASE_SEPOLIA_USDC_CONTRACT_ADDRESS,    // 4) burnToken (Base Sepolia USDC)
-    destinationCaller,                     // 5) bytes32(0) -> open finalize
-    maxFee,                                // 6) 0 for Standard
-    minFinality                            // 7) 2000
-  );
-  const receipt = await tx.wait();
+  // 3) Burn on TokenMessengerV2
+  const mintRecipientBytes32 = ethers.zeroPadValue(escrowContractAddress, 32); // bytes32
+  const destinationCaller = ethers.ZeroHash; // open finalize path
+  const maxFee = 0n; // Standard Transfer => 0 in V2 today
 
-  // Return hash so your server /api/cctp/finalize can complete on Amoy
-  return { txHash: tx.hash, blockNumber: receipt.blockNumber };
+  const burnData = messengerIface.encodeFunctionData('depositForBurn', [
+    amount6,
+    POLYGON_AMOY_DOMAIN,
+    mintRecipientBytes32,
+    BASE_SEPOLIA_USDC_CONTRACT_ADDRESS,
+    destinationCaller,
+    maxFee,
+    minFinality,
+  ]) as `0x${string}`;
+
+  const burnGas = await provider.estimateGas({
+    from: owner,
+    to: BASE_SEPOLIA_TOKEN_MESSENGER_V2,
+    data: burnData,
+  });
+
+  const burnRes = await sendEvmTransaction({
+    evmAccount,
+    network: 'base-sepolia',
+    transaction: {
+      chainId: BASE_SEPOLIA_CHAIN_ID,
+      type: 'eip1559',
+      to: BASE_SEPOLIA_TOKEN_MESSENGER_V2 as `0x${string}`,
+      data: burnData,
+      gas: burnGas + (burnGas / 10n),
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      nonce: Number(nextNonce),
+      value: 0n,
+    },
+  });
+
+  // Return the burn tx hash: your server will finalize on Amoy
+  return { txHash: burnRes.transactionHash };
 }
-
