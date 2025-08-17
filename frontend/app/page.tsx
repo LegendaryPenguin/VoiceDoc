@@ -8,7 +8,7 @@ import { saveConsult, normalizeAddr, type Consult } from './lib/consults';
 import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 import { burnFromBase } from "../lib/hooks/burn";
 import BuyUSDCButton from './components/BuyUSDCButton';
-
+import TokenBalanceBadge from './components/TokenBalanceBadge';
 // chat message shape
 type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
 
@@ -587,7 +587,10 @@ export default function Page() {
             <div className="font-mono text-gray-900 break-all">{contractAddress}</div>
           </div>
         )}
-
+    {/* Wallet balance under the buy button */}
+  <div className="text-xs text-gray-700">
+    <TokenBalanceBadge />
+  </div>
         <div className="mt-6 flex flex-col items-center gap-3">
           {/* Buy USDC Button (Coinbase Onramp) */}
   <BuyUSDCButton
@@ -597,6 +600,7 @@ export default function Page() {
     asset="USDC"
     className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
   />
+
           {/* Escrow Pay */}
           <button
             onClick={handleEscrowPayment}
