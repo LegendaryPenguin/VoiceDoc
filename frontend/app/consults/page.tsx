@@ -6,6 +6,7 @@ import { MessageCircle, Clock, Loader } from "lucide-react";
 import { ethers } from 'ethers';
 import { useEvmAddress } from "@coinbase/cdp-hooks";
 import { loadConsults, normalizeAddr, type Consult } from "../lib/consults";
+import { POLYGON_AMOY_RPC_URL } from "@/lib/constants"
 
 /* ---------- Helpers to normalize legacy consults ---------- */
 
@@ -113,7 +114,7 @@ export default function ConsultsPage() {
       if (!contractAddress) return { stage: "NO APPOINTMENT" };
 
       // Create a provider for Polygon Amoy
-      const provider = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+      const provider = new ethers.JsonRpcProvider(POLYGON_AMOY_RPC_URL);
       
       // Minimal ABI for the escrow contract - only need the stage function
       const escrowABI = [
