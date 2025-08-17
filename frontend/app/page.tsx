@@ -7,6 +7,7 @@ import { useEvmAddress } from '@coinbase/cdp-hooks';
 import { saveConsult, normalizeAddr, type Consult } from './lib/consults';
 import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 import { burnFromBase } from "../lib/hooks/burn";
+import BuyUSDCButton from './components/BuyUSDCButton';
 
 // chat message shape
 type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
@@ -588,6 +589,14 @@ export default function Page() {
         )}
 
         <div className="mt-6 flex flex-col items-center gap-3">
+          {/* Buy USDC Button (Coinbase Onramp) */}
+  <BuyUSDCButton
+    fiatAmount="25.00"
+    paymentCurrency="USD"
+    network="base"   // or "base-sepolia" while testing
+    asset="USDC"
+    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
+  />
           {/* Escrow Pay */}
           <button
             onClick={handleEscrowPayment}
