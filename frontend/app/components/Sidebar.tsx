@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -14,8 +14,13 @@ import {
   X,
 } from 'lucide-react';
 
-// ✅ Add this import
+// CDP auth button (unchanged)
 import { AuthButton } from '@coinbase/cdp-react/components/AuthButton';
+
+// ✅ Wallet-scoped badge support
+import { useEvmAddress } from '@coinbase/cdp-hooks';
+import { normalizeAddr } from '../lib/consults';
+import { loadMeds } from '../lib/meds';
 
 export default function Sidebar({
   isOpen,
@@ -26,11 +31,31 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
 
-  const items = [
+  // --- Wallet + meds count
+  const evmAddrRaw: any = useEvmAddress();
+  const addr = normalizeAddr(evmAddrRaw);
+  const [rxCount, setRxCount] = useState<number>(0);
+
+  useEffect(() => {
+    try {
+      const rec = loadMeds(addr);
+      setRxCount(rec.prescriptions?.length || 0);
+    } catch {
+      setRxCount(0);
+    }
+    // Recalc on route change so if user edits meds, the badge refreshes on nav
+  }, [addr, pathname]);
+
+  const items: {
+    href: string;
+    label: string;
+    icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+    badge?: number;
+  }[] = [
     { href: '/', label: 'New Consult', icon: MessageCircle },
     { href: '/consults', label: 'Consults', icon: History },
     { href: '/health-record', label: 'Health Record', icon: FileText },
-    { href: '/meds', label: 'Meds', icon: Pill },
+    { href: '/meds', label: 'Meds', icon: Pill, badge: rxCount }, // 👈 badge
     { href: '/labs', label: 'Labs', icon: TestTube },
     { href: '/appointments', label: 'Appointments', icon: Calendar },
   ];
@@ -64,21 +89,33 @@ export default function Sidebar({
           {/* Menu */}
           <nav className="space-y-2">
             {items.map((item) => {
-              const isActive = pathname === item.href;
               const Icon = item.icon;
+              // Better active-state: exact or section root (e.g., /meds/settings)
+              const isActive =
+                pathname === item.href || pathname.startsWith(item.href + '/');
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  className={`flex items-center justify-between px-4 py-3 rounded-lg transition-colors ${
                     isActive
                       ? 'bg-blue-50 text-blue-600 font-medium'
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                   onClick={onClose}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span>{item.label}</span>
+                  <span className="flex items-center gap-3">
+                    <Icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </span>
+
+                  {/* Only show badge if > 0 */}
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="ml-3 inline-flex items-center justify-center rounded-full bg-blue-600 text-white text-xs px-2 py-0.5">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -86,7 +123,6 @@ export default function Sidebar({
 
           {/* CTA -> CDP AuthButton */}
           <div className="mt-8">
-            {/* The AuthButton opens the CDP sign-in modal and also handles sign-out */}
             <AuthButton className="w-full" />
           </div>
         </div>
