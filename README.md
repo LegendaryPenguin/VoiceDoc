@@ -2,8 +2,11 @@
 
 **Problem (what patients and clinicians face today)**
 Not enough clinicians, longer waits: The U.S. is on track for a shortage of up to 86,000 physicians by 2036 and a growing share of current doctors are nearing retirement age. New-patient appointment waits have climbed to 31 days on average across major metros (up 19% since 2022).
+
 High call volume + long calls: Access is uneven, so people turn to virtual care and telehealth with nurse-led telehealth/triage lines that routinely handle large call volumes. However, these calls are not short. Surveys report that typical nurse triage calls run 11–16 minutes. In big systems, daily volume can spike from ~1,000 to 7,000 calls/day during peaks.
+
 Half the calls don’t become appointments: Evidence shows that about 50% of primary-care call-center cases can be handled with self-care advice alone, meaning no visit is scheduled. This means that huge blocks of nurse time are used up with no booked visit.
+
 Paying is stressful and opaque: Americans carry at least $220 billion in medical debt; millions owe over $1,000 and many delay or avoid care because of costs. Clinics struggle with no-shows, rescheduling, and collecting balances.
 Result: people wait too long, worry about the bill, and bounce between apps. Clinicians lose time and revenue to no-shows, refunds, and payment follow-up.
 
