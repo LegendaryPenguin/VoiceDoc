@@ -9,6 +9,7 @@ import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 import { burnFromBase } from "../lib/hooks/burn";
 import BuyUSDCButton from './components/BuyUSDCButton';
 import TokenBalanceBadge from './components/TokenBalanceBadge';
+
 // chat message shape
 type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
 
@@ -70,6 +71,55 @@ export default function Page() {
 
   // Track a placeholder AI bubble so we can replace it in place
   const pendingAiIdRef = useRef<string | null>(null);
+
+  // ===== TTS state/refs =====
+  const [ttsOn, setTtsOn] = useState(true);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voicePref, setVoicePref] = useState<string>(''); // auto-pick if empty
+  const [rate, setRate] = useState(1);   // 0.1 - 10
+  const [pitch, setPitch] = useState(1); // 0 - 2
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const synth = window.speechSynthesis;
+    synthRef.current = synth;
+
+    const loadVoices = () => {
+      const v = synth.getVoices();
+      setVoices(v);
+      if (!voicePref && v.length) {
+        const cand =
+          v.find(x => x.name.toLowerCase().includes('samantha')) ||
+          v.find(x => x.lang?.toLowerCase().startsWith('en'));
+        if (cand) setVoicePref(cand.name);
+      }
+    };
+
+    loadVoices();
+    synth.addEventListener?.('voiceschanged', loadVoices);
+    return () => synth.removeEventListener?.('voiceschanged', loadVoices);
+  }, [voicePref]);
+
+  const speak = (text: string) => {
+    if (!ttsOn) return;
+    const synth = synthRef.current;
+    if (!synth || typeof window.SpeechSynthesisUtterance === 'undefined') return;
+    try {
+      synth.cancel(); // clear any queued/stuck speech
+      const u = new SpeechSynthesisUtterance(text);
+      const chosen =
+        voices.find(v => v.name === voicePref) ||
+        voices.find(v => v.lang?.toLowerCase().startsWith('en')) ||
+        undefined;
+      if (chosen) u.voice = chosen;
+      u.rate = rate;
+      u.pitch = pitch;
+      synth.speak(u);
+    } catch {
+      // ignore
+    }
+  };
 
   // stamp stable time after mount
   useEffect(() => {
@@ -147,6 +197,9 @@ export default function Page() {
     rec.lang = 'en-US';
 
     rec.onstart = () => {
+      // stop TTS so mic is clean
+      synthRef.current?.cancel();
+
       setListening(true);
       setStatus('Listening… speak now');
       setInterim('');
@@ -311,7 +364,7 @@ export default function Page() {
       setStatusMessage(`Error: ${error.message || "Transaction failed"}`);
       pushAI(`Burn transaction failed: ${error.message || "Unknown error occurred"}`);
       
-      // Clear error status after 5 seconds
+      // Clear status after 5 seconds
       setTimeout(() => setStatusMessage(null), 5000);
     } finally {
       setBurning(false);
@@ -420,13 +473,16 @@ export default function Page() {
           onAnswer={(ans) => {
             setThinking(false);
             const id = pendingAiIdRef.current;
+            const finalText = ans && ans.trim() ? ans.trim() : '(No answer yet — try Refresh output.)';
             if (id) {
-              replaceMsgText(id, ans && ans.trim() ? ans.trim() : '(No answer yet — try Refresh output.)');
+              replaceMsgText(id, finalText);
               pendingAiIdRef.current = null;
             } else {
               // Fallback: push if placeholder is missing
-              setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text: ans || '(No answer yet — try Refresh output.)', at: Date.now() }]);
+              setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text: finalText, at: Date.now() }]);
             }
+            // Speak the answer
+            speak(finalText);
           }}
           onError={(err) => {
             setThinking(false);
@@ -438,6 +494,8 @@ export default function Page() {
             } else {
               setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text, at: Date.now() }]);
             }
+            // Optionally speak errors too
+            speak(text);
           }}
           onStatus={(s) => setStatus(s)}
         />
@@ -495,12 +553,40 @@ export default function Page() {
           </button>
         </form>
 
-        {/* helper row */}
-        <div className="mt-2 flex items-center justify-end text-xs text-gray-500">
+        {/* helper row with HIPAA + Voice toggle */}
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
           <span className="inline-flex items-center gap-1">
             <Lock className="w-3.5 h-3.5" />
             HIPAA compliant &amp; anonymous
           </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (ttsOn) synthRef.current?.cancel();
+                setTtsOn(!ttsOn);
+              }}
+              className={`px-2 py-1 rounded border ${ttsOn ? 'border-gray-300' : 'border-gray-200 bg-gray-100 text-gray-600'}`}
+              title="Toggle spoken responses"
+            >
+              {ttsOn ? 'Voice: On' : 'Voice: Off'}
+            </button>
+            {/* Optional tiny picker; keep but hidden by default */}
+            {voices.length > 0 && (
+              <select
+                value={voicePref}
+                onChange={(e) => setVoicePref(e.target.value)}
+                className="hidden border rounded px-1 py-0.5"
+                title="Voice"
+              >
+                <option value="">Auto</option>
+                {voices.map(v => (
+                  <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         {/* Transcript panel */}
@@ -587,19 +673,25 @@ export default function Page() {
             <div className="font-mono text-gray-900 break-all">{contractAddress}</div>
           </div>
         )}
-    {/* Wallet balance under the buy button */}
-  <div className="text-xs text-gray-700">
-    <TokenBalanceBadge />
-  </div>
+
+        {/* Actions: Buy + Escrow + Balance */}
         <div className="mt-6 flex flex-col items-center gap-3">
           {/* Buy USDC Button (Coinbase Onramp) */}
-  <BuyUSDCButton
-    fiatAmount="25.00"
-    paymentCurrency="USD"
-    network="base"   // or "base-sepolia" while testing
-    asset="USDC"
-    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
-  />
+          <BuyUSDCButton
+            fiatAmount="25.00"
+            paymentCurrency="USD"
+            network="base"   // or "base-sepolia" while testing
+            asset="USDC"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
+          />
+
+          {/* Current balance directly under the Buy button */}
+          <div className="mt-1 text-xs text-gray-700 text-center">
+            <div className="mb-1">Current balance</div>
+            <div className="flex justify-center">
+              <TokenBalanceBadge />
+            </div>
+          </div>
 
           {/* Escrow Pay */}
           <button
@@ -624,8 +716,8 @@ export default function Page() {
               </>
             )}
           </button>
-          
-          {/* tatus messages */}
+
+          {/* status messages */}
           {statusMessage && (
             <div className={`text-sm px-4 py-2 rounded-lg ${
               statusMessage.includes("Error") 
