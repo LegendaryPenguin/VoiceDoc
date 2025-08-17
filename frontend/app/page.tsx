@@ -754,14 +754,6 @@ export default function Page() {
 
         {/* Actions: Buy + Escrow + Balance */}
         <div className="mt-6 flex flex-col items-center gap-3">
-          {/* Buy USDC Button (Coinbase Onramp) */}
-          <BuyUSDCButton
-            fiatAmount="25.00"
-            paymentCurrency="USD"
-            network="base"   // or "base-sepolia" while testing
-            asset="USDC"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
-          />
 
           {/* Current balance directly under the Buy button */}
           <div className="mt-1 text-xs text-gray-700 text-center">
