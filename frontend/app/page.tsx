@@ -2,10 +2,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import AppShell from './components/AppShell';
-import { Mic, MicOff, Send, Lock, Download, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Send, Lock, Download, Loader2, Zap, Plus } from 'lucide-react';
 import { useEvmAddress } from '@coinbase/cdp-hooks';
 import { saveConsult, normalizeAddr, type Consult } from './lib/consults';
 import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
+import { burnFromBase } from "../lib/hooks/burn";
 
 // chat message shape
 type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
@@ -45,6 +46,10 @@ export default function Page() {
   const [status, setStatus] = useState('Click mic to speak');
   const [interim, setInterim] = useState('');
   const [thinking, setThinking] = useState(false);
+  const [burning, setBurning] = useState(false); // burn transaction state
+  const [deploying, setDeploying] = useState(false); // deploy contract state
+  const [statusMessage, setStatusMessage] = useState<string | null>(null); // status messages
+  const [contractAddress, setContractAddress] = useState<string | null>(null); // deployed contract address
 
   // wallet
   const evmAddrRaw: any = useEvmAddress();
@@ -100,6 +105,31 @@ export default function Page() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, interim, thinking]);
 
+  const pushUser = (text: string) =>
+    setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'user', text, at: Date.now() }]);
+
+  const pushAI = (text: string) => {
+    const id = crypto.randomUUID();
+    setMsgs((m) => [...m, { id, role: 'ai', text, at: Date.now() }]);
+    return id;
+  };
+
+  const replaceMsgText = (id: string, newText: string) =>
+    setMsgs((m) => m.map((msg) => (msg.id === id ? { ...msg, text: newText } : msg)));
+
+  // Centralized "send" from input or speech
+  const handleUserQuestion = (q: string) => {
+    if (!q.trim()) return;
+    pushUser(q.trim());
+    // show a placeholder AI bubble and remember its id
+    setThinking(true);
+    const placeholderId = pushAI('Thinking…');
+    pendingAiIdRef.current = placeholderId;
+    // drive the widget
+    setExtQuestion(q.trim());
+    setCnTrigger((t) => t + 1);
+  };
+
   // init speech recognition
   useEffect(() => {
     const Ctor =
@@ -154,35 +184,10 @@ export default function Page() {
         rec.stop();
       } catch {}
     };
-  }, []);
+  }, [handleUserQuestion]);
 
   const start = () => recRef.current && !listening && recRef.current.start();
   const stop = () => recRef.current && listening && recRef.current.stop();
-
-  const pushUser = (text: string) =>
-    setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'user', text, at: Date.now() }]);
-
-  const pushAI = (text: string) => {
-    const id = crypto.randomUUID();
-    setMsgs((m) => [...m, { id, role: 'ai', text, at: Date.now() }]);
-    return id;
-  };
-
-  const replaceMsgText = (id: string, newText: string) =>
-    setMsgs((m) => m.map((msg) => (msg.id === id ? { ...msg, text: newText } : msg)));
-
-  // Centralized “send” from input or speech
-  const handleUserQuestion = (q: string) => {
-    if (!q.trim()) return;
-    pushUser(q.trim());
-    // show a placeholder AI bubble and remember its id
-    setThinking(true);
-    const placeholderId = pushAI('Thinking…');
-    pendingAiIdRef.current = placeholderId;
-    // drive the widget
-    setExtQuestion(q.trim());
-    setCnTrigger((t) => t + 1);
-  };
 
   // Submit from input bar
   const onSubmit = (e: React.FormEvent) => {
@@ -190,6 +195,121 @@ export default function Page() {
     if (!input.trim()) return;
     handleUserQuestion(input.trim());
     setInput('');
+  };
+
+  // Deploy escrow contract function
+  const handleDeployContract = async () => {
+    if (deploying) return; // Prevent multiple clicks
+    
+    setDeploying(true);
+    setStatusMessage("Deploying escrow contract...");
+    
+    try {
+      const depositorAddress = "0x1234567890123456789012345678901234567890";  // THIS IS THE PATIENT ADDRESS
+      const beneficiaryAddress = "0x0987654321098765432109876543210987654321"; // THIS IS THE DRS ADDRESS
+      const amountUSDC = 5; // 5 USDC
+      
+      setStatusMessage("Sending deployment request...");
+      
+      const response = await fetch("/api/contracts/escrow/deploy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agreement: {
+            depositor_wallet_address: depositorAddress,
+            beneficiary_wallet_address: beneficiaryAddress,
+          },
+          amountUSDC,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.contractAddress) {
+        setContractAddress(data.contractAddress);
+        setStatusMessage(`Contract deployed successfully! Address: ${data.contractAddress}`);
+        pushAI(`Escrow contract deployed successfully! Contract address: ${data.contractAddress}. Transaction hash: ${data.txHash}`);
+        
+        // Clear status after 10 seconds (longer for contract address visibility)
+        setTimeout(() => setStatusMessage(null), 10000);
+      } else {
+        throw new Error("Deployment failed - no contract address returned");
+      }
+      
+    } catch (error: any) {
+      console.error("Contract deployment failed:", error);
+      setStatusMessage(`Error: ${error.message || "Deployment failed"}`);
+      pushAI(`Contract deployment failed: ${error.message || "Unknown error occurred"}`);
+      
+      // Clear error status after 5 seconds
+      setTimeout(() => setStatusMessage(null), 5000);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // Burn function with pre-defined contract address and 5 USDC
+  const handleBurnFromBase = async () => {
+    if (burning) return; // Prevent multiple clicks
+    if (!contractAddress) return;
+    
+    setBurning(true);
+    setStatusMessage("Initiating burn transaction...");
+    
+    try {
+      // Pre-defined escrow contract address (you can change this to any valid address)
+      const escrowContractAddress = contractAddress as `0x${string}`;
+      const amountUSDC = 5; // 5 USDC
+      
+      setStatusMessage("Please confirm the transaction in your wallet...");
+      
+      // 1) Burn on Base Sepolia (user wallet)
+      const result = await burnFromBase({
+        escrowContractAddress,
+        amountUSDC,
+      });
+      
+      setStatusMessage(`Success! Transaction hash: ${result.txHash}`);
+      pushAI(`Burn transaction completed successfully! 5 USDC burned from Base to escrow contract. Transaction: ${result.txHash}`);
+      
+      // 2) Finalize on Polygon Amoy (server signer)
+      const res = await fetch("/api/contracts/cctp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          txHash: result.txHash,
+          expectedMintRecipient: escrowContractAddress
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Finalize failed");
+      }
+      const data = await res.json();
+
+      pushAI(`Transfer to smart contract completed successfully! 5 USDC burned from Base to escrow contract. Transaction: ${data}`);
+
+      // Clear status after 5 seconds
+      setTimeout(() => setStatusMessage(null), 5000);
+      
+    } catch (error: any) {
+      console.error("Burn transaction failed:", error);
+      setStatusMessage(`Error: ${error.message || "Transaction failed"}`);
+      pushAI(`Burn transaction failed: ${error.message || "Unknown error occurred"}`);
+      
+      // Clear error status after 5 seconds
+      setTimeout(() => setStatusMessage(null), 5000);
+    } finally {
+      setBurning(false);
+    }
   };
 
   /** ------- Save consult (wallet-scoped) + Download TXT summary ------- **/
@@ -441,6 +561,76 @@ export default function Page() {
           <span className={`${listening ? 'text-red-600' : 'text-blue-600'} font-medium`}>
             {status}
           </span>
+        </div>
+
+        {/* Contract Address Display */}
+        {contractAddress && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm">
+            <div className="font-semibold text-gray-700 mb-2">Latest Deployed Contract:</div>
+            <div className="font-mono text-gray-900 break-all">{contractAddress}</div>
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-col items-center gap-3">
+          {/* Deploy Contract Button */}
+          <button
+            onClick={handleDeployContract}
+            disabled={deploying}
+            className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition ${
+              deploying
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-green-600 hover:bg-green-700 active:bg-green-800"
+            }`}
+            title="Deploy new escrow contract"
+          >
+            {deploying ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Deploying...
+              </>
+            ) : (
+              <>
+                <Plus className="w-5 h-5" />
+                Deploy Escrow Contract
+              </>
+            )}
+          </button>
+          {/* Burn USDC Button */}
+          <button
+            onClick={handleBurnFromBase}
+            disabled={burning}
+            className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition ${
+              burning
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-orange-600 hover:bg-orange-700 active:bg-orange-800"
+            }`}
+            title="Burn 5 USDC from Base to escrow contract"
+          >
+            {burning ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Zap className="w-5 h-5" />
+                Burn 5 USDC from Base
+              </>
+            )}
+          </button>
+          
+          {/* tatus messages */}
+          {statusMessage && (
+            <div className={`text-sm px-4 py-2 rounded-lg ${
+              statusMessage.includes("Error") 
+                ? "bg-red-50 text-red-700 border border-red-200"
+                : statusMessage.includes("successfully")
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-blue-50 text-blue-700 border border-blue-200"
+            }`}>
+              {statusMessage}
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

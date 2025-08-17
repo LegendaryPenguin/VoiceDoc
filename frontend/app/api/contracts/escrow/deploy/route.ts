@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { ethers } from "ethers";
-import { ABIJSON, CONTRACT_BYTECODE } from "@/lib/constants";
+import { ESCROW_ABI_JSON, ESCROW_CONTRACT_BYTECODE, POLYGON_AMOY_RPC_URL } from "@/lib/constants";
 
 type CreateEscrowRequest = {
   agreement: {
@@ -21,12 +21,11 @@ function requireEnv(name: string): string {
 }
 
 async function getProvider() {
-  const rpcUrl = requireEnv("RPC_URL");
-  return new ethers.JsonRpcProvider(rpcUrl);
+  return new ethers.JsonRpcProvider(POLYGON_AMOY_RPC_URL);
 }
 
 async function getSigner(provider: ethers.Provider) {
-  const pk = requireEnv("DEPLOYER_PRIVATE_KEY");
+  const pk = requireEnv("AMOY_DEPLOYER_PRIVATE_KEY");
   return new ethers.Wallet(pk, provider);
 }
 
@@ -78,8 +77,8 @@ export async function POST(req: NextRequest) {
 
     // Deploy
     const factory = new ethers.ContractFactory(
-      ABIJSON as any,
-      CONTRACT_BYTECODE as `0x${string}`,
+      ESCROW_ABI_JSON as any,
+      ESCROW_CONTRACT_BYTECODE as `0x${string}`,
       signer
     );
 

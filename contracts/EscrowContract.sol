@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 // inspiration from: https://www.circle.com/blog/refund-protocol-non-custodial-dispute-resolution-for-stablecoin-payments
 
-// @notice ERC-20 interface (USDC-compatible)
 interface IERC20 {
     function balanceOf(address) external view returns (uint256);
     function allowance(address owner, address spender) external view returns (uint256);
@@ -19,7 +18,6 @@ contract EscrowUSDCContract {
     uint256 internal constant CHAIN_ID_AMOY = 80002;
     address  public constant USDC_AMOY      = 0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582;
 
-    // ---- Types & State ----
     enum Stage { OPEN, FUNDED, RELEASED, REFUNDED }
 
     IERC20  public immutable usdc;
@@ -64,14 +62,13 @@ contract EscrowUSDCContract {
         emit StageChanged(stage);
     }
 
-    /// @notice Depositor funds the escrow (requires allowance >= amount).
+    /// @notice Pull-based funding path (EOA approves & we pull funds).
     function deposit() external nonReentrant {
         require(msg.sender == depositor, "ERR:NOT_DEPOSITOR");
         require(stage == Stage.OPEN, "ERR:BAD_STAGE");
         require(usdc.balanceOf(depositor) >= amount, "ERR:LOW_BAL");
         require(usdc.allowance(depositor, address(this)) >= amount, "ERR:LOW_ALLOW");
 
-        // Pull in funds
         bool ok = usdc.transferFrom(depositor, address(this), amount);
         require(ok, "ERR:XFERFROM_FAIL");
 
@@ -80,7 +77,19 @@ contract EscrowUSDCContract {
         emit Deposited(amount);
     }
 
-    /// @notice Each party approves releasing to beneficiary (2-of-2).
+    /// @notice Push-based funding confirmation (CCTP minted to this contract).
+    /// Anyone can call after funds arrive here.
+    function confirmDeposit() external nonReentrant {
+        require(stage == Stage.OPEN, "ERR:BAD_STAGE");
+        uint256 bal = usdc.balanceOf(address(this));
+        require(bal >= amount, "ERR:ESCROW_BAL_LOW");
+
+        stage = Stage.FUNDED;
+        emit StageChanged(stage);
+        emit Deposited(amount);
+    }
+
+    /// @notice Two-party release approvals
     function approveRelease() external {
         require(stage == Stage.FUNDED, "ERR:BAD_STAGE");
 
@@ -101,7 +110,7 @@ contract EscrowUSDCContract {
         }
     }
 
-    /// @notice Each party approves refunding to depositor (2-of-2).
+    /// @notice Two-party refund approvals
     function approveRefund() external {
         require(stage == Stage.FUNDED, "ERR:BAD_STAGE");
 
@@ -123,14 +132,14 @@ contract EscrowUSDCContract {
     }
 
     // ---- Internal actions ----
-    function _release() internal {
+    function _release() internal nonReentrant {
         stage = Stage.RELEASED;
         emit StageChanged(stage);
         require(usdc.transfer(beneficiary, amount), "ERR:XFER_FAIL");
         emit Released(amount);
     }
 
-    function _refund() internal {
+    function _refund() internal nonReentrant {
         stage = Stage.REFUNDED;
         emit StageChanged(stage);
         require(usdc.transfer(depositor, amount), "ERR:XFER_FAIL");
