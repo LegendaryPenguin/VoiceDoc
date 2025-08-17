@@ -410,7 +410,7 @@ export default function Page() {
       {/* Hidden widget handles chain tx + callbacks */}
       <div style={{ display: 'none' }}>
         <ChatGPTConsumerWidget
-          contractAddress="0xE1184808C10F0B733d84504bD1C7E35cd8fB0743"
+          contractAddress="0x4EA8E8A3dfc7C46a29c655EbD053Dc34c35eA114"
           rpcUrl="https://api.avax-test.network/ext/bc/C/rpc"
           chainId={43113n}
           defaultSubscriptionId={15737n}

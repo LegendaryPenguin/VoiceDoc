@@ -33,7 +33,7 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
     string private constant SOURCE = string(
     abi.encodePacked(
         "try {",
-        "  const SYSTEM = \"You are a telehealth nurse. You have a limit of 256 bytes for your response, so if you get a lengthy answer just add follow up questions instead of going over every possible result. \";",
+        "const SYSTEM=`SYSTEM PROMPT: You are a telehealth nurse deciding whether the patient needs an appointment. You can ask questions and give advice. After each response, remember to decide on whether they need an appointment. IF THEY NEED AN APPOINTMENT, SAY THIS KEY PHRASE: \" Based on our conversation, I recommend making an appointment.\" If they need no appointment, give them advice on what to do and what to keep an eye on. Keep response under 256 bytes.`;",
         "  const question = args[0] || \"\";",
         "  const prompt = SYSTEM + \"\\n\\nUser: \" + question + \"\\nAssistant:\";",
         "",
@@ -42,7 +42,7 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
         "    method: \"POST\",",
         "    headers: {",
         "      \"Content-Type\": \"application/json\",",
-        "      \"Authorization\": \"Bearer *apikeyhere*"",
+        "      \"Authorization\": \"Bearer *API_KEY_HERE\"",
         "    },",
         "    data: {",
         "      model: \"gpt-3.5-turbo\",",
