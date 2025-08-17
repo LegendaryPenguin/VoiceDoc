@@ -1,6 +1,7 @@
 # VoiceDoc
 
-<img width="1664" height="852" alt="Screenshot 2025-08-17 035247" src="https://github.com/user-attachments/assets/7c64d243-45e8-42b3-b211-f544fc2aae51" />
+<img width="1393" height="712" alt="image" src="https://github.com/user-attachments/assets/8d0fa153-0a62-4049-90d6-f8e2d935e520" />
+
 
 ## Problem (what patients and clinicians face today)
 
