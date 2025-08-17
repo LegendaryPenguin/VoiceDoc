@@ -2,6 +2,7 @@
 
 export type Consult = {
   id: string;
+  contract_address?: string; // unique contract generated upon booking an appointment
 
   // NEW:
   symptomsTitle: string;              // title on card

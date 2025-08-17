@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
-import { MessageCircle, Clock } from "lucide-react";
+import { MessageCircle, Clock, Loader } from "lucide-react";
+import { ethers } from 'ethers';
 import { useEvmAddress } from "@coinbase/cdp-hooks";
 import { loadConsults, normalizeAddr, type Consult } from "../lib/consults";
 
@@ -58,11 +59,35 @@ export default function ConsultsPage() {
   const evmAddrRaw: any = useEvmAddress();
   const addr = normalizeAddr(evmAddrRaw);
   const [items, setItems] = useState<Consult[]>([]);
+  const [escrowStatuses, setEscrowStatuses] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setItems(loadConsults(addr));
   }, [addr]);
+
+  // Load escrow statuses for all consults
+  useEffect(() => {
+    const loadEscrowStatuses = async () => {
+      const statuses: Record<string, string> = {};
+      
+      for (const consult of items) {
+        try {
+          const status = await getEscrowStatus(consult.contract_address);
+          statuses[consult.id] = status.stage;
+        } catch (error) {
+          console.error(`Error loading escrow status for ${consult.id}:`, error);
+          statuses[consult.id] = 'ERROR';
+        }
+      }
+      
+      setEscrowStatuses(statuses);
+    };
+
+    if (items.length > 0) {
+      loadEscrowStatuses();
+    }
+  }, [items]);
 
   const download = (c: Consult) => {
     const text =
@@ -82,6 +107,69 @@ export default function ConsultsPage() {
     URL.revokeObjectURL(url);
   };
 
+    // Get escrow contract status
+  const getEscrowStatus = async (contractAddress?: string) => {
+    try {
+      if (!contractAddress) return { stage: "NO APPOINTMENT" };
+
+      // Create a provider for Polygon Amoy
+      const provider = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+      
+      // Minimal ABI for the escrow contract - only need the stage function
+      const escrowABI = [
+        'function stage() view returns (uint8)',
+        'function depositor() view returns (address)',
+        'function beneficiary() view returns (address)',
+        'function amount() view returns (uint256)',
+        'function balance() view returns (uint256)',
+        'function depositorReleaseOk() view returns (bool)',
+        'function beneficiaryReleaseOk() view returns (bool)',
+        'function depositorRefundOk() view returns (bool)',
+        'function beneficiaryRefundOk() view returns (bool)'
+      ];
+      
+      // Create contract instance
+      const contract = new ethers.Contract(contractAddress, escrowABI, provider);
+      
+      // Get the stage (enum value)
+      const stageValue = await contract.stage();
+      
+      // Convert enum value to string
+      const stages = ['OPEN', 'FUNDED', 'RELEASED', 'REFUNDED'];
+      const stageName = stages[Number(stageValue)] || 'UNKNOWN';
+      
+      // Get additional contract info
+      const [depositor, beneficiary, amount, balance, depReleaseOk, benReleaseOk, depRefundOk, benRefundOk] = await Promise.all([
+        contract.depositor(),
+        contract.beneficiary(),
+        contract.amount(),
+        contract.balance(),
+        contract.depositorReleaseOk(),
+        contract.beneficiaryReleaseOk(),
+        contract.depositorRefundOk(),
+        contract.beneficiaryRefundOk()
+      ]);
+      
+      return {
+        stage: stageName,
+        stageValue: Number(stageValue),
+        depositor,
+        beneficiary,
+        amount: ethers.formatUnits(amount, 6), // USDC has 6 decimals
+        balance: ethers.formatUnits(balance, 6),
+        approvals: {
+          depositorReleaseOk: depReleaseOk,
+          beneficiaryReleaseOk: benReleaseOk,
+          depositorRefundOk: depRefundOk,
+          beneficiaryRefundOk: benRefundOk
+        }
+      };
+    } catch (error) {
+      console.error('Error getting escrow status:', error);
+      throw error;
+    }
+  };
+
   const fmtDate = (ms: number) => new Date(ms).toLocaleString();
   const fmtDuration = (sec?: number) =>
     sec ? `${Math.max(1, Math.round(sec / 60))} min` : "—";
@@ -92,7 +180,7 @@ export default function ConsultsPage() {
         <div className="mb-2">
           <h1 className="text-3xl font-bold text-gray-900">Your Consults</h1>
           <p className="text-gray-600">
-            Please note that VoiceDoc is for general information only and is not medical advice, doesn’t create a doctor–patient relationship, and shouldn’t be relied on for diagnosis or treatment. If you are having an emergency or feel rising symptoms, please call 911 or visit your local doctor.
+            Please note that VoiceDoc is for general information only and is not medical advice, doesn't create a doctor–patient relationship, and shouldn’t be relied on for diagnosis or treatment. If you are having an emergency or feel rising symptoms, please call 911 or visit your local doctor.
           </p>
         </div>
 
@@ -159,6 +247,19 @@ export default function ConsultsPage() {
                               : "Monitor symptoms"}
                           </span>
                         )}
+
+                        <span className="inline-flex items-center gap-1">
+                          <Loader className="w-4 h-4" /> Escrow Status: 
+                          <span
+                            className={`px-2 py-0.5 rounded-full border text-xs ${
+                              escrowStatuses[c.id] === "NO APPOINTMENT"
+                                ? "bg-red-50 text-gray-700 border-gray-200"
+                                : "bg-amber-50 text-green-700 border-green-200"
+                            }`}
+                          >
+                            {escrowStatuses[c.id] || 'Loading...'}
+                          </span>
+                        </span>
                       </div>
                     </div>
                   </div>
