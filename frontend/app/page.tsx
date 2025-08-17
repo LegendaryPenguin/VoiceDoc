@@ -7,10 +7,16 @@ import { useEvmAddress } from '@coinbase/cdp-hooks';
 import { saveConsult, normalizeAddr, type Consult } from './lib/consults';
 import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 import { burnFromBase } from "../lib/hooks/burn";
-import BuyUSDCButton from './components/BuyUSDCButton';
+import { ScheduleDay, formatSlotForHuman, dateFromRawLocal } from '@/lib/utils/schedule';
+import SchedulePicker from './components/SchedulePicker';
 
-// chat message shape
-type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
+export type Msg = {
+  id: string;
+  role: 'user' | 'ai';
+  at: number;
+  text?: string;
+  schedule?: ScheduleDay[];
+};
 
 // minimal Web Speech typings
 interface WebSpeechRecognition extends EventTarget {
@@ -32,6 +38,7 @@ declare global {
   }
 }
 
+
 export default function Page() {
   const [input, setInput] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -50,8 +57,8 @@ export default function Page() {
   const [burning, setBurning] = useState(false); // burn transaction state
   const [deploying, setDeploying] = useState(false); // deploy contract state
   const [statusMessage, setStatusMessage] = useState<string | null>(null); // status messages
-  const [contractAddress, setContractAddress] = useState<string | null>(null); // deployed contract address
-  const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
+  const [contractAddress, setContractAddress] = useState<string | undefined>(undefined); // deployed contract address
+  const [appointmentDate, setAppointmentDate] = useState<Date | null>(null);
 
   // wallet
   const evmAddrRaw: any = useEvmAddress();
@@ -210,7 +217,7 @@ export default function Page() {
     try {
       const depositorAddress = addr;
       const beneficiaryAddress = "0x0987654321098765432109876543210987654321"; // THIS IS THE DRS ADDRESS
-      const amountUSDC = 1; // 1 USDC
+      const amountUSDC = 2; // 2 USDC
       
       setStatusMessage("Sending deployment request...");
       
@@ -242,10 +249,10 @@ export default function Page() {
         
         // Clear status after 10 seconds (longer for contract address visibility)
         setTimeout(() => setStatusMessage(null), 10000);
+        await handleBurnFromBase(data.contractAddress);
       } else {
         throw new Error("Deployment failed - no contract address returned");
       }
-      
     } catch (error: any) {
       console.error("Contract deployment failed:", error);
       setStatusMessage(`Error: ${error.message || "Deployment failed"}`);
@@ -255,14 +262,18 @@ export default function Page() {
       setTimeout(() => setStatusMessage(null), 5000);
     } finally {
       setDeploying(false);
-      handleBurnFromBase();
     }
   };
 
-  // Burn function with pre-defined contract address and 1 USDC
-  const handleBurnFromBase = async () => {
+  // Burn function with pre-defined contract address and 2 USDC
+  const handleBurnFromBase = async (contractAddress: string) => {
     if (burning) return; // Prevent multiple clicks
-    if (!contractAddress) return;
+    if (!contractAddress) {
+      setStatusMessage("No contract address...");
+      return;
+    };
+
+    console.log("beginning burn!!!!")
     
     setBurning(true);
     setStatusMessage("Initiating burn transaction...");
@@ -270,9 +281,9 @@ export default function Page() {
     try {
       // Pre-defined escrow contract address (you can change this to any valid address)
       const escrowContractAddress = contractAddress as `0x${string}`;
-      const amountUSDC = 1; // 1 USDC
+      const amountUSDC = 2; // 2 USDC
       
-      setStatusMessage("Please confirm the transaction in your wallet...");
+      setStatusMessage("Confirming the transaction in your wallet...");
       
       // 1) Burn on Base Sepolia (user wallet)
       const result = await burnFromBase({
@@ -281,7 +292,7 @@ export default function Page() {
       });
       
       setStatusMessage(`Success! Transaction hash: ${result.txHash}`);
-      pushAI(`Burn transaction completed successfully! 1 USDC burned from Base to escrow contract. Transaction: ${result.txHash}. The finalization process will take about 20 minutes to complete automatically.`);
+      pushAI(`Burn transaction completed successfully! 2 USDC burned from Base to escrow contract. Transaction: ${result.txHash}. The finalization process will take about 20 minutes to complete automatically.`);
       
       // 2) Finalize on Polygon Amoy (server signer) - Fire and forget, don't block UI
       fetch("/api/contracts/cctp", {
@@ -302,6 +313,8 @@ export default function Page() {
       }).catch((error) => {
         pushAI(`CCTP finalization error: ${error.message}. This may resolve automatically or require manual intervention.`);
       });
+
+      pushAI(`CCTP finalization completed! The USDC has been successfully transferred to the escrow contract on Polygon Amoy.`);
 
       // Clear status after 5 seconds
       setTimeout(() => setStatusMessage(null), 5000);
@@ -330,6 +343,7 @@ export default function Page() {
 
     const consult: Consult = {
       id: crypto.randomUUID(),
+      contractAddress,
       symptomsTitle,
       conversationSummary: synopsis,
       recommendation,
@@ -364,7 +378,7 @@ export default function Page() {
   };
 
   function analyzeConsult(allMsgs: Msg[]) {
-    const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text.trim());
+  const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text?.trim()).filter((t): t is string => t !== undefined);
     const allUserLower = users.join(' ').toLowerCase();
 
     const SYMPTOMS = [
@@ -404,6 +418,44 @@ export default function Page() {
   const fmtTime = (ms: number) =>
     ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
 
+  const onPickSlot = (isoLocal: string, raw: { date: string; time: string }) => {
+    // 1) Optimistically echo the user's choice into the thread
+    setMsgs((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: 'user',
+        at: Date.now(),
+        text: `Let's book ${formatSlotForHuman(raw.date, raw.time)}.`,
+      },
+    ]);
+    setAppointmentDate(dateFromRawLocal(raw))
+
+    setMsgs((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: 'ai',
+        at: Date.now(),
+        text: `Perfect! Your total for this appointment including insurance will be $2 payable in USDC. Click the button below to securely hold funds until your appointment is completed.`,
+      },
+    ]);
+  };
+
+  function renderMsgBody(m: Msg) {
+    if (m.schedule?.length) {
+      return (
+        <SchedulePicker
+          slots={m.schedule}
+          onPickSlot={onPickSlot}
+          isDisabled={!!appointmentDate}
+          className="mt-1"
+        />
+      );
+    }
+    return <span>{m.text}</span>;
+  }
+
   //region == RENDER ==
   return (
     <AppShell>
@@ -426,6 +478,29 @@ export default function Page() {
             } else {
               // Fallback: push if placeholder is missing
               setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text: ans || '(No answer yet — try Refresh output.)', at: Date.now() }]);
+            }
+
+            const triggers = [
+              'schedule an appointment',
+              'make an appointment',
+              'making an appointment',
+            ];
+            if (triggers.some(p => ans.toLowerCase().includes(p))) {
+              console.log("it found it", ans)
+              const slots = [
+                { date: '2025-08-18', times: ['09:00', '13:00', '15:30'] },
+                { date: '2025-08-19', times: ['10:00', '14:00', '16:30'] },
+                { date: '2025-08-20', times: ['09:30', '11:00'] },
+                { date: '2025-08-21', times: ['09:00', '11:30', '14:00', '16:00'] }
+              ];
+
+              setMsgs((m) => [...m, {
+                id: crypto.randomUUID(),
+                role: 'ai',
+                at: Date.now(),
+                schedule: slots,
+                text: "",
+              }]);
             }
           }}
           onError={(err) => {
@@ -543,19 +618,22 @@ export default function Page() {
                 m.role === 'user'
                   ? 'ml-auto bg-blue-600 text-white'
                   : 'bg-white text-gray-800 border border-[#E8E2D9]';
+
               return (
                 <div key={m.id}>
                   <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
                     {m.role === 'user' ? 'You' : 'VoiceDoc'} · {fmtTime(m.at)}
                   </div>
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-3 leading-relaxed ${bubble}`}>
-                    {m.text}
+                  <div className={`max-w-[85%] rounded-2xl leading-relaxed ${bubble}`}>
+                    <div className="px-4 py-3">
+                      {renderMsgBody(m)}
+                    </div>
                   </div>
                 </div>
               );
             })}
 
-            {/* live interim bubble while speaking */}
+            {/* live interim bubble while speaking (unchanged) */}
             {listening && interim && (
               <div>
                 <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">You · now</div>
@@ -568,7 +646,7 @@ export default function Page() {
 
           {/* hint bar */}
           <div className="px-4 py-2 border-t border-[#E8E2D9] text-xs text-gray-600">
-            Tip: Tap <b>Mic</b>, speak, then tap <b>Mic</b> again to stop. We’ll keep a complete
+            Tip: Tap <b>Mic</b>, speak, then tap <b>Mic</b> again to stop. We'll keep a complete
             transcript here.
           </div>
         </div>
@@ -583,20 +661,12 @@ export default function Page() {
         {/* Contract Address Display */}
         {contractAddress && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm">
-            <div className="font-semibold text-gray-700 mb-2">Latest Deployed Contract:</div>
+            <div className="font-semibold text-gray-700 mb-2">Latest Deployed Escrow Contract:</div>
             <div className="font-mono text-gray-900 break-all">{contractAddress}</div>
           </div>
         )}
 
         <div className="mt-6 flex flex-col items-center gap-3">
-          {/* Buy USDC Button (Coinbase Onramp) */}
-  <BuyUSDCButton
-    fiatAmount="25.00"
-    paymentCurrency="USD"
-    network="base"   // or "base-sepolia" while testing
-    asset="USDC"
-    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
-  />
           {/* Escrow Pay */}
           <button
             onClick={handleEscrowPayment}
@@ -641,8 +711,8 @@ export default function Page() {
 
 /** ========= Helper: build a doctor-friendly TXT summary ========= **/
 function summarizeForDoctor(allMsgs: Msg[]): string {
-  const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text.trim());
-  const ais = allMsgs.filter((m) => m.role === 'ai').map((m) => m.text.trim());
+  const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text?.trim()).filter((t): t is string => t !== undefined);
+  const ais = allMsgs.filter((m) => m.role === 'ai').map((m) => m.text?.trim()).filter((t): t is string => t !== undefined);
   const allUserText = users.join('\n').toLowerCase();
 
   const chiefComplaint = users[0] || 'Not provided';

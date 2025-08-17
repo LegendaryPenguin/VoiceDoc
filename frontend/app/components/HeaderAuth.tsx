@@ -4,6 +4,7 @@ import { AuthButton } from "@coinbase/cdp-react/components/AuthButton";
 import { useEvmAddress, useIsSignedIn } from "@coinbase/cdp-hooks";
 import { useMemo, useState } from "react";
 import { Copy, Check } from "lucide-react";
+import BuyUSDCButton from "./BuyUSDCButton";
 
 export default function HeaderAuth() {
   const isSignedIn = useIsSignedIn();
@@ -41,6 +42,16 @@ export default function HeaderAuth() {
           </button>
         </div>
       )}
+      {/* Buy USDC Button (Coinbase Onramp) */}
+      {evmAddress && 
+        <BuyUSDCButton
+          fiatAmount="25.00"
+          paymentCurrency="USD"
+          network="base"   // or "base-sepolia" while testing
+          asset="USDC"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-black hover:opacity-90"
+        />
+      }
       {/* AuthButton handles Sign in / Sign out automatically */}
       <AuthButton />
     </div>
