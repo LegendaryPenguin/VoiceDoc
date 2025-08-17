@@ -9,7 +9,7 @@ import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 import { burnFromBase } from "../lib/hooks/burn";
 import { ScheduleDay, formatSlotForHuman, dateFromRawLocal } from '@/lib/utils/schedule';
 import SchedulePicker from './components/SchedulePicker';
-
+import TokenBalanceBadge from './components/TokenBalanceBadge';
 export type Msg = {
   id: string;
   role: 'user' | 'ai';
@@ -665,8 +665,12 @@ export default function Page() {
             <div className="font-mono text-gray-900 break-all">{contractAddress}</div>
           </div>
         )}
-
+    {/* Wallet balance under the buy button */}
+  <div className="text-xs text-gray-700">
+    <TokenBalanceBadge />
+  </div>
         <div className="mt-6 flex flex-col items-center gap-3">
+
           {/* Escrow Pay */}
           <button
             onClick={handleEscrowPayment}
