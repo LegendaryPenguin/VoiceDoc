@@ -1,13 +1,14 @@
-"use client";
+'use client';
 
-import React, { useEffect, useRef, useState } from "react";
-import AppShell from "./components/AppShell";
-import { Mic, MicOff, Send, Lock, Download, Loader2 } from "lucide-react";
-import { useEvmAddress } from "@coinbase/cdp-hooks";
-import { saveConsult, normalizeAddr, type Consult } from "./lib/consults";
+import React, { useEffect, useRef, useState } from 'react';
+import AppShell from './components/AppShell';
+import { Mic, MicOff, Send, Lock, Download, Loader2 } from 'lucide-react';
+import { useEvmAddress } from '@coinbase/cdp-hooks';
+import { saveConsult, normalizeAddr, type Consult } from './lib/consults';
+import ChatGPTConsumerWidget from './components/ChatGPTConsumerWidget';
 
 // chat message shape
-type Msg = { id: string; role: "user" | "ai"; text: string; at: number };
+type Msg = { id: string; role: 'user' | 'ai'; text: string; at: number };
 
 // minimal Web Speech typings
 interface WebSpeechRecognition extends EventTarget {
@@ -30,43 +31,50 @@ declare global {
 }
 
 export default function Page() {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>([
     {
-      id: "welcome",
-      role: "ai",
+      id: 'welcome',
+      role: 'ai',
       text:
         "Hi, I'm your AI health assistant. Tap the mic, speak naturally, and I'll keep a transcript here.",
-      at: 0, // set after mount to avoid hydration mismatch
+      at: 0,
     },
   ]);
   const [listening, setListening] = useState(false);
-  const [status, setStatus] = useState("Click mic to speak");
-  const [interim, setInterim] = useState(""); // live partial speech
-  const [thinking, setThinking] = useState(false); // demo spinner
+  const [status, setStatus] = useState('Click mic to speak');
+  const [interim, setInterim] = useState('');
+  const [thinking, setThinking] = useState(false);
 
-  // Wallet (string or object in some SDK versions) → normalize to string | undefined
+  // wallet
   const evmAddrRaw: any = useEvmAddress();
   const addr = normalizeAddr(evmAddrRaw);
 
   const recRef = useRef<WebSpeechRecognition | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ----- Per-wallet transcript key (stable string) -----
-  const storageKey = `voicedoc:${addr ?? "guest"}`;
+  // transcript storage key
+  const storageKey = `voicedoc:${addr ?? 'guest'}`;
   const loadedKeyRef = useRef<string | null>(null);
+
+  // Chainlink submit controls to drive the widget
+  const [cnTrigger, setCnTrigger] = useState(0);
+  const [extQuestion, setExtQuestion] = useState<string>('');
+
+  // Track a placeholder AI bubble so we can replace it in place
+  const pendingAiIdRef = useRef<string | null>(null);
 
   // stamp stable time after mount
   useEffect(() => {
     setMsgs((m) =>
-      m.map((x) => (x.id === "welcome" && x.at === 0 ? { ...x, at: Date.now() } : x))
+      m.map((x) => (x.id === 'welcome' && x.at === 0 ? { ...x, at: Date.now() } : x)),
     );
   }, []);
 
-  // Load ONCE per storageKey (prevents setState loops)
+  // Load once per key
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (loadedKeyRef.current === storageKey) return; // already loaded for this key
+    if (typeof window === 'undefined') return;
+    if (loadedKeyRef.current === storageKey) return;
 
     const raw = localStorage.getItem(storageKey);
     if (raw) {
@@ -74,19 +82,19 @@ export default function Page() {
         const parsed = JSON.parse(raw) as Msg[];
         setMsgs(parsed);
       } catch {
-        // ignore malformed localStorage
+        // ignore malformed
       }
     }
     loadedKeyRef.current = storageKey;
   }, [storageKey]);
 
-  // Persist when msgs or key changes (write-only; safe)
+  // Persist transcript
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === 'undefined') return;
     localStorage.setItem(storageKey, JSON.stringify(msgs));
   }, [storageKey, msgs]);
 
-  // auto-scroll chat
+  // auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -95,26 +103,26 @@ export default function Page() {
   // init speech recognition
   useEffect(() => {
     const Ctor =
-      typeof window !== "undefined" &&
+      typeof window !== 'undefined' &&
       (window.SpeechRecognition || window.webkitSpeechRecognition);
     if (!Ctor) {
-      setStatus("Speech recognition not supported in this browser");
+      setStatus('Speech recognition not supported in this browser');
       return;
     }
     const rec = new Ctor();
     rec.continuous = false; // tap-to-talk
-    rec.interimResults = true; // show live text
-    rec.lang = "en-US";
+    rec.interimResults = true; // live text
+    rec.lang = 'en-US';
 
     rec.onstart = () => {
       setListening(true);
-      setStatus("Listening… speak now");
-      setInterim("");
+      setStatus('Listening… speak now');
+      setInterim('');
     };
 
     rec.onresult = (e: any) => {
-      let finalText = "";
-      let interimText = "";
+      let finalText = '';
+      let interimText = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         const t = r[0].transcript;
@@ -123,22 +131,21 @@ export default function Page() {
       }
       setInterim(interimText);
       if (finalText.trim()) {
-        setInterim("");
-        pushUser(finalText.trim()); // append to transcript
-        simulateAIReply(); // demo; later call backend
+        setInterim('');
+        handleUserQuestion(finalText.trim());
       }
     };
 
     rec.onend = () => {
       setListening(false);
-      setStatus("Click mic to speak");
-      setInterim("");
+      setStatus('Click mic to speak');
+      setInterim('');
     };
 
     rec.onerror = () => {
       setListening(false);
-      setStatus("Mic error — try again");
-      setInterim("");
+      setStatus('Mic error — try again');
+      setInterim('');
     };
 
     recRef.current = rec;
@@ -153,122 +160,152 @@ export default function Page() {
   const stop = () => recRef.current && listening && recRef.current.stop();
 
   const pushUser = (text: string) =>
-    setMsgs((m) => [...m, { id: crypto.randomUUID(), role: "user", text, at: Date.now() }]);
+    setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'user', text, at: Date.now() }]);
 
-  const pushAI = (text: string) =>
-    setMsgs((m) => [...m, { id: crypto.randomUUID(), role: "ai", text, at: Date.now() }]);
-
-  // demo-only reply
-  const simulateAIReply = async () => {
-    setThinking(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setThinking(false);
-    pushAI("Thanks — I've added that to your transcript. (Demo reply; backend coming soon.)");
+  const pushAI = (text: string) => {
+    const id = crypto.randomUUID();
+    setMsgs((m) => [...m, { id, role: 'ai', text, at: Date.now() }]);
+    return id;
   };
 
+  const replaceMsgText = (id: string, newText: string) =>
+    setMsgs((m) => m.map((msg) => (msg.id === id ? { ...msg, text: newText } : msg)));
+
+  // Centralized “send” from input or speech
+  const handleUserQuestion = (q: string) => {
+    if (!q.trim()) return;
+    pushUser(q.trim());
+    // show a placeholder AI bubble and remember its id
+    setThinking(true);
+    const placeholderId = pushAI('Thinking…');
+    pendingAiIdRef.current = placeholderId;
+    // drive the widget
+    setExtQuestion(q.trim());
+    setCnTrigger((t) => t + 1);
+  };
+
+  // Submit from input bar
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-    pushUser(input.trim());
-    setInput("");
-    simulateAIReply();
+    handleUserQuestion(input.trim());
+    setInput('');
   };
 
   /** ------- Save consult (wallet-scoped) + Download TXT summary ------- **/
-  // --- REPLACE your current endChatAndDownload with this ---
-const endChatAndDownload = () => {
-  const fullTxt = summarizeForDoctor(msgs);
+  const endChatAndDownload = () => {
+    const fullTxt = summarizeForDoctor(msgs);
 
-  // Analyze the conversation to get: symptomsTitle, synopsis, recommendation
-  const { symptomsTitle, synopsis, recommendation } = analyzeConsult(msgs);
+    const { symptomsTitle, synopsis, recommendation } = analyzeConsult(msgs);
 
-  // Rough duration from first->last timestamp (if present)
-  const times = msgs.map((m) => m.at).filter((n) => n && n > 0).sort((a, b) => a - b);
-  const durationSec =
-    times.length >= 2 ? Math.round((times.at(-1)! - times[0]) / 1000) : undefined;
+    const times = msgs.map((m) => m.at).filter((n) => n && n > 0).sort((a, b) => a - b);
+    const durationSec =
+      times.length >= 2 ? Math.round((times.at(-1)! - times[0]) / 1000) : undefined;
 
-  // Create consult record with new fields
-  const consult: Consult = {
-    id: crypto.randomUUID(),
-    // new fields:
-    symptomsTitle,                    // <- TITLE shown on the card
-    conversationSummary: synopsis,    // <- DESCRIPTION on the card
-    recommendation,                   // <- doctor | monitor
+    const consult: Consult = {
+      id: crypto.randomUUID(),
+      symptomsTitle,
+      conversationSummary: synopsis,
+      recommendation,
+      title: symptomsTitle,
+      preview: synopsis,
+      summary: fullTxt,
+      createdAt: Date.now(),
+      durationSec,
+      messageCount: msgs.length,
+    };
 
-    // keep existing fields for compatibility
-    title: symptomsTitle,
-    preview: synopsis,
-    summary: fullTxt,
+    saveConsult(addr, consult);
 
-    createdAt: Date.now(),
-    durationSec,
-    messageCount: msgs.length,
+    const blob = new Blob([fullTxt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.href = url;
+    a.download = `voicedoc-summary-${ts}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  saveConsult(addr, consult);
+  function analyzeConsult(allMsgs: Msg[]) {
+    const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text.trim());
+    const allUserLower = users.join(' ').toLowerCase();
 
-  // Download TXT summary (unchanged)
-  const blob = new Blob([fullTxt], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  a.href = url;
-  a.download = `voicedoc-summary-${ts}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-};
+    const SYMPTOMS = [
+      'chest pain','shortness of breath','headache','fever','cough','sore throat',
+      'nausea','vomiting','diarrhea','fatigue','rash','dizziness','abdominal pain',
+      'stomach pain','back pain','congestion','runny nose','body aches','chills'
+    ];
+    const found = Array.from(
+      new Set(
+        SYMPTOMS.filter((s) => allUserLower.includes(s)).map((s) => titleCase(s))
+      )
+    );
 
-// --- ADD these helpers (below your other helpers) ---
+    const durations = matchAll(allUserLower, /\b\d+\s+(?:day|week|month|year)s?\b/g);
 
-function analyzeConsult(allMsgs: Msg[]) {
-  const users = allMsgs.filter((m) => m.role === "user").map((m) => m.text.trim());
-  const allUserLower = users.join(" ").toLowerCase();
+    const symptomsTitle =
+      found.length ? found.slice(0, 3).join(', ') : (users[0] || 'General symptoms');
 
-  // Symptoms extraction (simple keyword pass)
-  const SYMPTOMS = [
-    "chest pain","shortness of breath","headache","fever","cough","sore throat",
-    "nausea","vomiting","diarrhea","fatigue","rash","dizziness","abdominal pain",
-    "stomach pain","back pain","congestion","runny nose","body aches","chills"
-  ];
-  const found = Array.from(
-    new Set(
-      SYMPTOMS.filter((s) => allUserLower.includes(s)).map((s) => titleCase(s))
-    )
-  );
+    const durationPart = durations.length ? ` for ${durations[0]}` : '';
+    const synopsis = `Patient reports ${symptomsTitle.toLowerCase()}${durationPart}. Conversation captured and summarized for review.`;
 
-  // Durations like "3 days", "2 weeks"
-  const durations = matchAll(allUserLower, /\b\d+\s+(?:day|week|month|year)s?\b/g);
+    const RED_FLAGS = [
+      'chest pain','shortness of breath','severe headache','fainted','unconscious',
+      'heavy bleeding','vision loss','slurred speech','confusion','stiff neck',
+      'high fever'
+    ];
+    const hasRedFlag = RED_FLAGS.some((k) => allUserLower.includes(k));
+    const recommendation: 'doctor' | 'monitor' = hasRedFlag ? 'doctor' : 'monitor';
 
-  // Compose short, readable title like "Chest pain, Shortness of breath"
-  const symptomsTitle =
-    found.length ? found.slice(0, 3).join(", ") : (users[0] || "General symptoms");
+    return { symptomsTitle, synopsis, recommendation };
+  }
 
-  // Build a 1–2 sentence synopsis (card description)
-  const durationPart = durations.length ? ` for ${durations[0]}` : "";
-  const synopsis = `Patient reports ${symptomsTitle.toLowerCase()}${durationPart}. Conversation captured and summarized for review.`;
-
-  // Recommendation (rule of thumb): red flags → "doctor", else "monitor"
-  const RED_FLAGS = [
-    "chest pain","shortness of breath","severe headache","fainted","unconscious",
-    "heavy bleeding","vision loss","slurred speech","confusion","stiff neck",
-    "high fever"
-  ];
-  const hasRedFlag = RED_FLAGS.some((k) => allUserLower.includes(k));
-  const recommendation: "doctor" | "monitor" = hasRedFlag ? "doctor" : "monitor";
-
-  return { symptomsTitle, synopsis, recommendation };
-}
-
-function titleCase(s: string) {
-  return s.replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1));
-}
-
+  function titleCase(s: string) {
+    return s.replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1));
+  }
 
   const fmtTime = (ms: number) =>
-    ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "now";
+    ms > 0 ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
 
   return (
     <AppShell>
+      {/* Hidden widget handles chain tx + callbacks */}
+      <div style={{ display: 'none' }}>
+        <ChatGPTConsumerWidget
+          contractAddress="0x3c060CeC4a6a64D81Dbce789C221170786ccccd8"
+          rpcUrl="https://api.avax-test.network/ext/bc/C/rpc"
+          chainId={43113n}
+          defaultSubscriptionId={15737n}
+          externalQuestion={extQuestion}
+          externalSubscriptionId={15737n}
+          trigger={cnTrigger}
+          onAnswer={(ans) => {
+            setThinking(false);
+            const id = pendingAiIdRef.current;
+            if (id) {
+              replaceMsgText(id, ans && ans.trim() ? ans.trim() : '(No answer yet — try Refresh output.)');
+              pendingAiIdRef.current = null;
+            } else {
+              // Fallback: push if placeholder is missing
+              setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text: ans || '(No answer yet — try Refresh output.)', at: Date.now() }]);
+            }
+          }}
+          onError={(err) => {
+            setThinking(false);
+            const id = pendingAiIdRef.current;
+            const text = `(Error) ${err}`;
+            if (id) {
+              replaceMsgText(id, text);
+              pendingAiIdRef.current = null;
+            } else {
+              setMsgs((m) => [...m, { id: crypto.randomUUID(), role: 'ai', text, at: Date.now() }]);
+            }
+          }}
+          onStatus={(s) => setStatus(s)}
+        />
+      </div>
+
       <div className="mx-auto max-w-3xl px-6 py-10">
         {/* Heading */}
         <h1 className="text-5xl md:text-6xl font-serif font-bold text-gray-900 text-center leading-tight">
@@ -303,12 +340,12 @@ function titleCase(s: string) {
             onClick={listening ? stop : start}
             className={`rounded-xl px-4 flex items-center justify-center border transition ${
               listening
-                ? "bg-red-50 text-red-600 border-red-200"
-                : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                ? 'bg-red-50 text-red-600 border-red-200'
+                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
             }`}
             aria-pressed={listening}
-            aria-label={listening ? "Stop recording" : "Start recording"}
-            title={listening ? "Stop recording" : "Start recording"}
+            aria-label={listening ? 'Stop recording' : 'Start recording'}
+            title={listening ? 'Stop recording' : 'Start recording'}
           >
             {listening ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
           </button>
@@ -321,7 +358,7 @@ function titleCase(s: string) {
           </button>
         </form>
 
-        {/* helper row (no counter) */}
+        {/* helper row */}
         <div className="mt-2 flex items-center justify-end text-xs text-gray-500">
           <span className="inline-flex items-center gap-1">
             <Lock className="w-3.5 h-3.5" />
@@ -329,9 +366,9 @@ function titleCase(s: string) {
           </span>
         </div>
 
-        {/* Transcript panel — rounded, beige background */}
+        {/* Transcript panel */}
         <div className="mt-8 rounded-2xl border border-[#E8E2D9] bg-[#F6F1E9]">
-          {/* top status bar */}
+          {/* status bar */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-[#E8E2D9] text-sm">
             <div className="flex items-center gap-3">
               {listening ? (
@@ -362,17 +399,17 @@ function titleCase(s: string) {
             </button>
           </div>
 
-          {/* scrollable chat area */}
+          {/* scrollable chat */}
           <div ref={scrollRef} className="max-h-[420px] overflow-y-auto p-4 md:p-6 space-y-4">
             {msgs.map((m) => {
               const bubble =
-                m.role === "user"
-                  ? "ml-auto bg-blue-600 text-white"
-                  : "bg-white text-gray-800 border border-[#E8E2D9]";
+                m.role === 'user'
+                  ? 'ml-auto bg-blue-600 text-white'
+                  : 'bg-white text-gray-800 border border-[#E8E2D9]';
               return (
                 <div key={m.id}>
                   <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
-                    {m.role === "user" ? "You" : "VoiceDoc"} · {fmtTime(m.at)}
+                    {m.role === 'user' ? 'You' : 'VoiceDoc'} · {fmtTime(m.at)}
                   </div>
                   <div className={`max-w-[85%] rounded-2xl px-4 py-3 leading-relaxed ${bubble}`}>
                     {m.text}
@@ -392,16 +429,16 @@ function titleCase(s: string) {
             )}
           </div>
 
-          {/* bottom hint bar */}
+          {/* hint bar */}
           <div className="px-4 py-2 border-t border-[#E8E2D9] text-xs text-gray-600">
             Tip: Tap <b>Mic</b>, speak, then tap <b>Mic</b> again to stop. We’ll keep a complete
             transcript here.
           </div>
         </div>
 
-        {/* small mic status under chat */}
+        {/* mic status */}
         <div className="mt-3 text-sm">
-          <span className={`${listening ? "text-red-600" : "text-blue-600"} font-medium`}>
+          <span className={`${listening ? 'text-red-600' : 'text-blue-600'} font-medium`}>
             {status}
           </span>
         </div>
@@ -412,11 +449,11 @@ function titleCase(s: string) {
 
 /** ========= Helper: build a doctor-friendly TXT summary ========= **/
 function summarizeForDoctor(allMsgs: Msg[]): string {
-  const users = allMsgs.filter((m) => m.role === "user").map((m) => m.text.trim());
-  const ais = allMsgs.filter((m) => m.role === "ai").map((m) => m.text.trim());
-  const allUserText = users.join("\n").toLowerCase();
+  const users = allMsgs.filter((m) => m.role === 'user').map((m) => m.text.trim());
+  const ais = allMsgs.filter((m) => m.role === 'ai').map((m) => m.text.trim());
+  const allUserText = users.join('\n').toLowerCase();
 
-  const chiefComplaint = users[0] || "Not provided";
+  const chiefComplaint = users[0] || 'Not provided';
 
   const pickLines = (keywords: RegExp[]) =>
     users.filter((t) => keywords.some((k) => k.test(t.toLowerCase())));
@@ -446,66 +483,66 @@ function summarizeForDoctor(allMsgs: Msg[]): string {
   const durations = matchAll(allUserText, /\b\d+\s+(?:day|week|month|year)s?\b/g);
 
   const redFlagsList = [
-    "chest pain",
-    "shortness of breath",
-    "severe headache",
-    "fainted",
-    "unconscious",
-    "heavy bleeding",
-    "vision loss",
-    "slurred speech",
-    "confusion",
-    "stiff neck",
-    "high fever",
-    "pregnant",
-    "suicid",
-    "overdose",
+    'chest pain',
+    'shortness of breath',
+    'severe headache',
+    'fainted',
+    'unconscious',
+    'heavy bleeding',
+    'vision loss',
+    'slurred speech',
+    'confusion',
+    'stiff neck',
+    'high fever',
+    'pregnant',
+    'suicid',
+    'overdose',
   ];
   const redFlags = redFlagsList.filter((k) => allUserText.includes(k));
 
   const lines = [
-    "VoiceDoc — Visit Summary (Auto-generated)",
+    'VoiceDoc — Visit Summary (Auto-generated)',
     `Date: ${new Date().toLocaleString()}`,
-    "",
-    "Patient:",
-    "  • Anonymous (no identity collected in this session)",
-    "",
-    "Chief Complaint:",
+    '',
+    'Patient:',
+    '  • Anonymous (no identity collected in this session)',
+    '',
+    'Chief Complaint:',
     `  • ${chiefComplaint}`,
-    "",
-    "Symptom Summary (patient statements):",
-    ...(users.length ? users.map((u) => `  • ${u}`) : ["  • Not provided"]),
-    "",
-    "Onset / Duration (parsed):",
-    `  • Phrases: ${onset.length ? onset.join("; ") : "—"}`,
-    `  • Durations: ${durations.length ? durations.join("; ") : "—"}`,
-    "",
-    "Medications Mentioned:",
-    ...(meds.length ? meds.map((m) => `  • ${m}`) : ["  • —"]),
-    "",
-    "Allergies Mentioned:",
-    ...(allergies.length ? allergies.map((m) => `  • ${m}`) : ["  • —"]),
-    "",
-    "Relevant History (self-reported):",
-    ...(history.length ? history.map((m) => `  • ${m}`) : ["  • —"]),
-    "",
-    "Home Measurements / Vitals Mentioned:",
-    ...(vitals.length ? vitals.map((m) => `  • ${m}`) : ["  • —"]),
-    "",
-    "Potential Red Flags (keyword scan):",
-    `  • ${redFlags.length ? redFlags.join(", ") : "None detected based on keywords"}`,
-    "",
-    "AI Guidance Given (high-level):",
-    ...(ais.length ? ais.map((a) => `  • ${a}`) : ["  • —"]),
-    "",
-    "Next Steps Discussed:",
-    "  • —",
-    "",
-    "Disclaimer:",
-    "  • This summary is auto-generated for clinical review and is not medical advice.",
+    '',
+    'Symptom Summary (patient statements):',
+    ...(users.length ? users.map((u) => `  • ${u}`) : ['  • Not provided']),
+    '',
+    'Onset / Duration (parsed):',
+    `  • Phrases: ${onset.length ? onset.join('; ') : '—'}`,
+    `  • Durations: ${durations.length ? durations.join('; ') : '—'}`,
+    '',
+    'Medications Mentioned:',
+    ...(meds.length ? meds.map((m) => `  • ${m}`) : ['  • —']),
+    '',
+    'Allergies Mentioned:',
+    ...(allergies.length ? allergies.map((m) => `  • ${m}`) : ['  • —']),
+    '',
+    'Relevant History (self-reported):',
+    ...(history.length ? history.map((m) => `  • ${m}`) : ['  • —']),
+    '',
+    'Home Measurements / Vitals Mentioned:',
+    ...(vitals.length ? vitals.map((m) => `  • ${m}`) : ['  • —']),
+    '',
+    'Potential Red Flags (keyword scan):',
+    `  • ${redFlags.length ? redFlags.join(', ') : 'None detected based on keywords'}`,
+    '',
+    'AI Guidance Given (high-level):',
+    ...(ais.length ? ais.map((a) => `  • ${a}`) : ['  • —']),
+    '',
+    'Next Steps Discussed:',
+    '  • —',
+    '',
+    'Disclaimer:',
+    '  • This summary is auto-generated for clinical review and is not medical advice.',
   ];
 
-  return lines.join("\n");
+  return lines.join('\n');
 }
 
 function matchAll(text: string, re: RegExp): string[] {
