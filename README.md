@@ -1,7 +1,7 @@
 # VoiceDoc
 
 <img width="1393" height="712" alt="image" src="https://github.com/user-attachments/assets/8d0fa153-0a62-4049-90d6-f8e2d935e520" />
-Connect the World with Chainlink (Chainlink), Enable end users to pay for gas using USDC (Circle)
+Prizes Won ($4000): Connect the World with Chainlink (Chainlink), Enable end users to pay for gas using USDC (Circle)
 
 ## Problem (what patients and clinicians face today)
 
