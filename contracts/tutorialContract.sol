@@ -129,3 +129,4 @@ contract ChatGPTConsumer is FunctionsClient, ConfirmedOwner {
         return string(lastError);
     }
 }
+
