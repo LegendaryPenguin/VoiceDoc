@@ -40,6 +40,43 @@ declare global {
 }
 
 
+/**
+ * Page
+ *
+ * Main app page for the VoiceDoc telehealth assistant. Provides a conversational
+ * UI with speech-to-text, text-to-speech, local transcript persistence, simple
+ * clinical summarization, appointment scheduling UI, and on-chain escrow flow
+ * (deploy + burn + cross-chain finalization).
+ *
+ * Responsibilities:
+ * - Manage UI state for conversation, interim speech transcripts, and TTS settings.
+ * - Persist and restore transcripts per-wallet from localStorage.
+ * - Integrate browser SpeechRecognition for tap-to-talk input and Web Speech
+ *   Synthesis for spoken responses.
+ * - Drive an offscreen Chainlink/ChatGPT widget to generate AI replies and
+ *   transform responses into scheduling widgets when appropriate.
+ * - Provide actions to deploy an escrow contract, execute a user-side burn
+ *   transaction, and trigger server-side finalization (CCTP).
+ * - Export a consultation summary, save it to a wallet-scoped store, and allow
+ *   the user to download a text summary.
+ *
+ * Important implementation notes:
+ * - A "pending AI" placeholder message is inserted before the async widget
+ *   reply so the UI can replace the placeholder in-place when the answer arrives.
+ * - Transcripts are auto-scrolled and persisted under a storage key that is
+ *   derived from the connected wallet identity (or 'guest' if no wallet).
+ *
+ * Explanation of the two wallet-related operations used by the component:
+ * - The component first obtains the raw wallet identity from a custom hook
+ *   (the hook returns whatever the wallet integration provides, e.g. an
+ *   address string or provider object).
+ * - That raw value is then passed through a normalization function which
+ *   produces a consistent, checksummed hex address string (or undefined)
+ *   suitable for use as the localStorage key, for display, and as the
+ *   depositor/transaction participant address when initiating on-chain flows.
+ *
+ * @returns JSX.Element The rendered VoiceDoc page UI.
+ */
 export default function Page() {
   const [input, setInput] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -200,11 +237,11 @@ export default function Page() {
     }
     const rec = new Ctor();
     rec.continuous = false; // tap-to-talk
-    rec.interimResults = true; // live text
+    rec.interimResults = true; // live text transcription
     rec.lang = 'en-US';
 
     rec.onstart = () => {
-      // stop TTS so mic is clean
+      // stop Text to Speech so mic is clean
       synthRef.current?.cancel();
 
       setListening(true);
