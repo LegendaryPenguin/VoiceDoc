@@ -496,13 +496,13 @@ export default function Page() {
   };
 
   function renderMsgBody(m: Msg) {
-    if (m.schedule?.length) {
+    if (m.schedule?.length) { // only renders if at least one slot
       return (
         <SchedulePicker
-          slots={m.schedule}
-          onPickSlot={onPickSlot}
-          isDisabled={!!appointmentDate}
-          className="mt-1"
+          slots={m.schedule}              // Available time slots to display
+          onPickSlot={onPickSlot}         // Callback when user picks a slot
+          isDisabled={!!appointmentDate}  // Disable if appointment already booked
+          className="mt-1"                // Tailwind: margin-top
         />
       );
     }
@@ -757,9 +757,9 @@ export default function Page() {
 
           {/* Current balance directly under the Buy button */}
           <div className="mt-1 text-xs text-gray-700 text-center">
-            <div className="mb-1">Current balance</div>
+            {/* <div className="mb-1">Current balance</div> */}
             <div className="flex justify-center">
-              <TokenBalanceBadge />
+              {/* <TokenBalanceBadge /> */}
             </div>
           </div>
 

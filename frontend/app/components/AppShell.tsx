@@ -11,11 +11,26 @@ interface AppShellProps {
   leftOfWallet?: React.ReactNode; // NEW
 }
 
+/**
+ * AppShell - Main layout wrapper with sidebar and top bar
+ * 
+ * Inputs:
+ * - children: main page content to render
+ * - leftOfWallet: optional component to display left of auth (e.g. balance pill)
+ * 
+ * Outputs:
+ * - Full page layout with collapsible sidebar, top navigation bar, and content area
+ * 
+ * This function provides the core app structure: sidebar for navigation,
+ * top bar with hamburger menu + auth controls, and scrollable main content.
+ */
 export default function AppShell({ children, leftOfWallet }: AppShellProps) {
+  // Track sidebar open/closed state for mobile menu
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {/* Sidebar component - opens/closes via sidebarOpen state */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="flex-1 flex flex-col overflow-hidden">

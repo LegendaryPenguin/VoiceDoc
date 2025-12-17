@@ -13,6 +13,22 @@ type Props = {
   className?: string;
 };
 
+/**
+ * BuyUSDCButton - Opens Coinbase Onramp to purchase crypto with fiat
+ * 
+ * Inputs:
+ * - fiatAmount: how much fiat to spend (default "50.00")
+ * - paymentCurrency: fiat currency code (default "USD")
+ * - network: blockchain network (default "base")
+ * - asset: crypto asset to buy (default "USDC")
+ * - className: optional button styles
+ * 
+ * Outputs:
+ * - Button that opens Coinbase Onramp popup for purchasing crypto
+ * 
+ * This function calls /api/onramp-url to generate a session URL, then opens
+ * Coinbase's onramp flow in a popup window for the user to complete purchase.
+ */
 export default function BuyUSDCButton({
   fiatAmount = '50.00',
   paymentCurrency = 'USD',
@@ -20,9 +36,11 @@ export default function BuyUSDCButton({
   asset = 'USDC',
   className,
 }: Props) {
+  // Get user's wallet address from CDP hooks
   const { evmAddress } = useEvmAddress();
   const [loading, setLoading] = useState(false);
 
+  // Handle button click: create onramp session and open popup
   const handleClick = useCallback(async () => {
     if (!evmAddress) {
       alert('Connect your wallet first.');
@@ -30,6 +48,7 @@ export default function BuyUSDCButton({
     }
     setLoading(true);
     try {
+      // Call API to generate Coinbase Onramp URL
       const resp = await fetch('/api/onramp-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
