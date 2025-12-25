@@ -544,10 +544,10 @@ export default function Page() {
             if (triggers.some(p => ans.toLowerCase().includes(p))) {
               console.log("it found it", ans)
               const slots = [
-                { date: '2025-12-18', times: ['09:00', '13:00', '15:30'] },
-                { date: '2025-12-19', times: ['10:00', '14:00', '16:30'] },
-                { date: '2025-12-20', times: ['09:30', '11:00'] },
-                { date: '2025-12-21', times: ['09:00', '11:30', '14:00', '16:00'] }
+                { date: '2025-12-26', times: ['09:00', '13:00', '15:30'] },
+                { date: '2025-12-27', times: ['10:00', '14:00', '16:30'] },
+                { date: '2025-12-28', times: ['09:30', '11:00'] },
+                { date: '2025-12-29', times: ['09:00', '11:30', '14:00', '16:00'] }
               ];
 
               setMsgs((m) => [...m, {
